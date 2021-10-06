@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31717.71
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RaterBot", "RaterBot\RaterBot.csproj", "{475B9964-CD43-4964-8892-9AC9E2D5C65B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RaterBot.Database", "RaterBot.Database\RaterBot.Database.csproj", "{4267C72A-0835-42B8-B637-90F9DA40D5BC}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{475B9964-CD43-4964-8892-9AC9E2D5C65B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{475B9964-CD43-4964-8892-9AC9E2D5C65B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{475B9964-CD43-4964-8892-9AC9E2D5C65B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{475B9964-CD43-4964-8892-9AC9E2D5C65B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4267C72A-0835-42B8-B637-90F9DA40D5BC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4267C72A-0835-42B8-B637-90F9DA40D5BC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4267C72A-0835-42B8-B637-90F9DA40D5BC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4267C72A-0835-42B8-B637-90F9DA40D5BC}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {94BF52CA-1890-44A1-9365-5E0E16D9F396}
+	EndGlobalSection
+EndGlobal
