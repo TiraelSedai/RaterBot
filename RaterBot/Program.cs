@@ -195,7 +195,7 @@ namespace RaterBot
 
             var from = replyTo.From;
 
-            var newMessage = await botClient.SendTextMessageAsync(msg.Chat, $"От @{from.Username}:{Environment.NewLine}{replyTo.Text}", replyMarkup: _newPostIkm);
+            var newMessage = await botClient.SendTextMessageAsync(msg.Chat, $"От {MentionUsername(from)}:{Environment.NewLine}{replyTo.Text}", replyMarkup: _newPostIkm);
             try
             {
                 await botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
@@ -219,9 +219,7 @@ namespace RaterBot
             var from = msg.From;
             try
             {
-                var who = GetFirstLast(from);
-
-                var newMessage = await botClient.CopyMessageAsync(msg.Chat.Id, msg.Chat.Id, msg.MessageId, replyMarkup: _newPostIkm, caption: $"От [{who}](https://t.me/{from.Username})", parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2);
+                var newMessage = await botClient.CopyMessageAsync(msg.Chat.Id, msg.Chat.Id, msg.MessageId, replyMarkup: _newPostIkm, caption: $"От {MentionUsername(from)}");
                 await botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
 
                 var sql = $"INSERT INTO {nameof(Post)} ({nameof(Post.ChatId)}, {nameof(Post.PosterId)}, {nameof(Post.MessageId)}) Values (@ChatId, @PosterId, @MessageId);";
@@ -233,15 +231,22 @@ namespace RaterBot
             }
         }
 
-        private static string GetFirstLast(User from)
+        private static string MentionUsername(User user)
         {
-            var first = from.FirstName ?? string.Empty;
-            var second = from.LastName ?? string.Empty;
-            var who = $"{first} {second}".Trim();
-            if (who.Length == 0)
-                who = "анонима";
-            return who;
+            if (string.IsNullOrWhiteSpace(user.Username))
+            {
+                var first = user.FirstName ?? string.Empty;
+                var last = user.LastName ?? string.Empty;
+                var who = $"{first} {last}".Trim();
+                if (who.Length == 0)
+                    who = "анонима";
+
+                return $"поехавшего {who} без ника в телеге";
+            }
+                
+            return $"@{user.Username}";
         }
+             
 
         private static IServiceProvider CreateServices() =>
             new ServiceCollection()
