@@ -47,6 +47,8 @@ namespace RaterBot
         {
             InitAndMigrateDb();
 
+            var me = await botClient.GetMeAsync();
+
             var offset = 0;
             while (true)
             {
@@ -67,6 +69,11 @@ namespace RaterBot
                                 {
                                     if (msg.Text == "/text@mediarater_bot" || msg.Text == "/text")
                                     {
+                                        if (msg.ReplyToMessage.From.Id == me.Id)
+                                        {
+                                            await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку не от бота");
+                                            continue;
+                                        }
                                         if (string.IsNullOrWhiteSpace(msg.ReplyToMessage.Text))
                                         {
                                             await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
