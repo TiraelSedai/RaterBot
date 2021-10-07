@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using RaterBot.Database;
 using Serilog;
 using Serilog.Core;
+using System.Text;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
@@ -190,12 +191,13 @@ namespace RaterBot
 
         private static async Task HandleTextReplyAsync(Update update)
         {
+            _logger.Information("New valid text message");
             var msg = update.Message;
             var replyTo = msg.ReplyToMessage;
 
             var from = replyTo.From;
 
-            var newMessage = await botClient.SendTextMessageAsync(msg.Chat, $"От {MentionUsername(from)}:{Environment.NewLine}{replyTo.Text}", replyMarkup: _newPostIkm);
+            var newMessage = await botClient.SendTextMessageAsync(msg.Chat, $"{AtMentionUsername(from)}:{Environment.NewLine}{replyTo.Text}", replyMarkup: _newPostIkm);
             try
             {
                 await botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
@@ -214,12 +216,11 @@ namespace RaterBot
 
         private static async Task HandleMediaMessage(Message msg)
         {
-            _logger.Debug("Valid media message");
-
+            _logger.Information("New valid media message");
             var from = msg.From;
             try
             {
-                var newMessage = await botClient.CopyMessageAsync(msg.Chat.Id, msg.Chat.Id, msg.MessageId, replyMarkup: _newPostIkm, caption: $"От {MentionUsername(from)}");
+                var newMessage = await botClient.CopyMessageAsync(msg.Chat.Id, msg.Chat.Id, msg.MessageId, replyMarkup: _newPostIkm, caption: MentionUsername(from), parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2);
                 await botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
 
                 var sql = $"INSERT INTO {nameof(Post)} ({nameof(Post.ChatId)}, {nameof(Post.PosterId)}, {nameof(Post.MessageId)}) Values (@ChatId, @PosterId, @MessageId);";
@@ -231,7 +232,28 @@ namespace RaterBot
             }
         }
 
+        private static readonly HashSet<char> _shouldBeEscaped = new() { '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!' };
+
         private static string MentionUsername(User user)
+        {
+            var first = user.FirstName ?? string.Empty;
+            var last = user.LastName ?? string.Empty;
+            var who = $"{first} {last}".Trim();
+            if (string.IsNullOrWhiteSpace(who))
+                who = "анонима";
+
+            var whoEscaped = new StringBuilder(who.Length);
+            foreach (var c in who)
+            {
+                if (_shouldBeEscaped.Contains(c))
+                    whoEscaped.Append('\\');
+                whoEscaped.Append(c);
+            }
+
+            return $"От [{whoEscaped}](tg://user?id={user.Id})";
+        }
+
+        private static string AtMentionUsername(User user)
         {
             if (string.IsNullOrWhiteSpace(user.Username))
             {
@@ -244,7 +266,7 @@ namespace RaterBot
                 return $"поехавшего {who} без ника в телеге";
             }
                 
-            return $"@{user.Username}";
+            return $"От @{user.Username}";
         }
              
 
