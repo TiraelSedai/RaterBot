@@ -210,8 +210,13 @@ namespace RaterBot
             if (msg.From.Id == replyTo.From.Id)
                 await botClient.DeleteMessageAsync(msg.Chat.Id, replyTo.MessageId);
 
-            var sql = $"INSERT INTO {nameof(Post)} ({nameof(Post.ChatId)}, {nameof(Post.PosterId)}, {nameof(Post.MessageId)}) Values (@ChatId, @PosterId, @MessageId);";
-            await _dbConnection.Value.ExecuteAsync(sql, new { ChatId = msg.Chat.Id, PosterId = from.Id, newMessage.MessageId });
+            await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+        }
+
+        private static async Task InsertIntoPosts(long ChatId, long PosterId, long MessageId)
+        {
+            var sql = $"INSERT INTO {nameof(Post)} ({nameof(Post.ChatId)}, {nameof(Post.PosterId)}, {nameof(Post.MessageId)}, {nameof(Post.Timestamp)}) Values (@ChatId, @PosterId, @MessageId, @Timestamp);";
+            await _dbConnection.Value.ExecuteAsync(sql, new { ChatId, PosterId, MessageId, Timestamp = DateTime.UtcNow });
         }
 
         private static async Task HandleMediaMessage(Message msg)
@@ -222,9 +227,7 @@ namespace RaterBot
             {
                 var newMessage = await botClient.CopyMessageAsync(msg.Chat.Id, msg.Chat.Id, msg.MessageId, replyMarkup: _newPostIkm, caption: MentionUsername(from), parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2);
                 await botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
-
-                var sql = $"INSERT INTO {nameof(Post)} ({nameof(Post.ChatId)}, {nameof(Post.PosterId)}, {nameof(Post.MessageId)}) Values (@ChatId, @PosterId, @MessageId);";
-                await _dbConnection.Value.ExecuteAsync(sql, new { ChatId = msg.Chat.Id, PosterId = from.Id, MessageId = newMessage.Id });
+                await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.Id);
             }
             catch (Exception ex)
             {
