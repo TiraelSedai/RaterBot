@@ -202,9 +202,9 @@ namespace RaterBot
             {
                 await botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
             }
-            catch (Telegram.Bot.Exceptions.ApiRequestException)
+            catch (Telegram.Bot.Exceptions.ApiRequestException are)
             {
-                // its fine, duplicate update?
+                _logger.Warning(are, "Unable to delete message in HandleTextReplyAsync, duplicated update?");
             }
 
             if (msg.From.Id == replyTo.From.Id)
