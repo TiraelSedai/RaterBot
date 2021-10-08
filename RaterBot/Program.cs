@@ -72,6 +72,12 @@ namespace RaterBot
                                     continue;
                                 }
 
+                                if (msg.Text == "/top_authors_month@mediarater_bot" || msg.Text == "/top_authors_month")
+                                {
+                                    await HandleTopMonthAuthors(update);
+                                    continue;
+                                }
+
                                 if (msg.ReplyToMessage != null)
                                 {
                                     if (msg.Text == "/text@mediarater_bot" || msg.Text == "/text")
@@ -120,6 +126,68 @@ namespace RaterBot
             }
         }
 
+        private static string GetMessageIdPlusCountPosterIdSql() =>
+            $"SELECT {nameof(Interaction)}.{nameof(Interaction.MessageId)}, COUNT(*), {nameof(Interaction)}.{nameof(Interaction.PosterId)}" +
+            $" FROM {nameof(Post)} INNER JOIN {nameof(Interaction)} ON {nameof(Post)}.{nameof(MessageId)} = {nameof(Interaction)}.{nameof(Interaction.MessageId)}" +
+            $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @WeekAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = true" +
+            $" GROUP BY {nameof(Interaction)}.{nameof(Interaction.MessageId)};";
+
+        private static string GetMessageIdMinusCountSql() =>
+            $"SELECT {nameof(Interaction)}.{nameof(Interaction.MessageId)}, COUNT(*)" +
+            $" FROM {nameof(Post)} INNER JOIN {nameof(Interaction)} ON {nameof(Post)}.{nameof(MessageId)} = {nameof(Interaction)}.{nameof(Interaction.MessageId)}" +
+            $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @WeekAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = false" +
+            $" GROUP BY {nameof(Interaction)}.{nameof(Interaction.MessageId)};";
+
+        // TODO: A lot of duplicated code between HandleTopWeekPosts and HandleTopMonthAuthors. Refactor
+
+        private static async Task HandleTopMonthAuthors(Update update)
+        {
+            var chat = update.Message.Chat;
+            string sql = GetMessageIdPlusCountPosterIdSql();
+            var sqlParams = new { WeekAgo = DateTime.UtcNow - TimeSpan.FromDays(30), ChatId = chat.Id };
+            var plus = await _dbConnection.Value.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
+            if (!plus.Any())
+            {
+                await botClient.SendTextMessageAsync(chat, "Не найдено заплюсованных постов за последнюю неделю");
+                _logger.Information($"{nameof(HandleTopWeekPosts)} - no upvoted posts, skipping");
+                return;
+            }
+            sql = GetMessageIdMinusCountSql();
+            var minus = _dbConnection.Value.Query<(long MessageId, long MinusCount)>(sql, sqlParams).ToDictionary(x => x.MessageId, y => y.MinusCount);
+
+            var topAuthors = plus.GroupBy(x => x.PosterId).Select(x => new
+            {
+                x.Key,
+                Hindex = x.OrderByDescending(x => x.PlusCount).TakeWhile((z, i) => z.PlusCount >= i + 1).Count(),
+                Likes = x.Sum(x => x.PlusCount)
+            }).OrderByDescending(x => x.Hindex).ThenByDescending(x => x.Likes).Take(10);
+
+            var userIds = topAuthors.Select(x => x.Key).Distinct().ToList();
+            var userIdToUser = new Dictionary<long, User>(userIds.Count);
+            foreach (var id in userIds)
+            {
+                var member = await botClient.GetChatMemberAsync(chat, id);
+                userIdToUser.Add(id, member.User);
+            }
+
+            var message = new StringBuilder(1024);
+            message.Append("Топ авторов за последний месяц:");
+            message.Append(Environment.NewLine);
+            var i = 0;
+            foreach (var item in topAuthors)
+            {
+                AppendPlace(message, i);
+
+                var user = userIdToUser[item.Key];
+                message.Append(GetFirstLastName(user));
+                message.Append($" очков: {item.Hindex}, апвоутов: {item.Likes}");
+
+                i++;
+            }
+
+            await botClient.SendTextMessageAsync(chat, message.ToString());
+        }
+
         private static async Task HandleTopWeekPosts(Update update)
         {
             var chat = update.Message.Chat;
@@ -131,10 +199,7 @@ namespace RaterBot
                 return;
             }
 
-            var sql = $"SELECT {nameof(Interaction)}.{nameof(Interaction.MessageId)}, COUNT(*), {nameof(Interaction)}.{nameof(Interaction.PosterId)}" +
-                $" FROM {nameof(Post)} INNER JOIN {nameof(Interaction)} ON {nameof(Post)}.{nameof(MessageId)} = {nameof(Interaction)}.{nameof(Interaction.MessageId)}" +
-                $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @WeekAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = true" +
-                $" GROUP BY {nameof(Interaction)}.{nameof(Interaction.MessageId)};";
+            var sql = GetMessageIdPlusCountPosterIdSql();
             var sqlParams = new { WeekAgo = DateTime.UtcNow - TimeSpan.FromDays(7), ChatId = chat.Id };
             var plusQuery = await _dbConnection.Value.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
             var plus = plusQuery.ToDictionary(x => x.MessageId, x => x.PlusCount);
@@ -145,10 +210,7 @@ namespace RaterBot
                 _logger.Information($"{nameof(HandleTopWeekPosts)} - no upvoted posts, skipping");
                 return;
             }
-            sql = $"SELECT {nameof(Interaction)}.{nameof(Interaction.MessageId)}, COUNT(*)" +
-                $" FROM {nameof(Post)} INNER JOIN {nameof(Interaction)} ON {nameof(Post)}.{nameof(MessageId)} = {nameof(Interaction)}.{nameof(Interaction.MessageId)}" +
-                $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @WeekAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = false" +
-                $" GROUP BY {nameof(Interaction)}.{nameof(Interaction.MessageId)};";
+            sql = GetMessageIdMinusCountSql();
             var minus = (await _dbConnection.Value.QueryAsync<(long MessageId, long MinusCount)>(sql, sqlParams)).ToDictionary(x => x.MessageId, y => y.MinusCount);
 
             var keys = plus.Keys.ToList();
@@ -167,25 +229,13 @@ namespace RaterBot
             }
 
             var message = new StringBuilder(1024);
+            message.Append("Топ постов за последнюю неделю:");
+            message.Append(Environment.NewLine);
             var i = 0;
             var sg = chat.Type == Telegram.Bot.Types.Enums.ChatType.Supergroup;
             foreach (var item in topTen)
             {
-                switch (i)
-                {
-                    case 0:
-                        message.Append("🥇 ");
-                        break;
-                    case 1:
-                        message.Append($"{Environment.NewLine}🥈 ");
-                        break;
-                    case 2:
-                        message.Append($"{Environment.NewLine}🥉 ");
-                        break;
-                    default:
-                        message.Append($"{Environment.NewLine}{i+1} ");
-                        break;
-                }
+                AppendPlace(message, i);
 
                 var user = userIdToUser[messageIdToUserId[item.Key]];
 
@@ -202,6 +252,25 @@ namespace RaterBot
             }
 
             await botClient.SendTextMessageAsync(chat, message.ToString(), Telegram.Bot.Types.Enums.ParseMode.MarkdownV2);
+        }
+
+        private static void AppendPlace(StringBuilder stringBuilder, int i)
+        {
+            switch (i)
+            {
+                case 0:
+                    stringBuilder.Append("🥇 ");
+                    break;
+                case 1:
+                    stringBuilder.Append($"{Environment.NewLine}🥈 ");
+                    break;
+                case 2:
+                    stringBuilder.Append($"{Environment.NewLine}🥉 ");
+                    break;
+                default:
+                    stringBuilder.Append($"{Environment.NewLine}{i + 1} ");
+                    break;
+            }
         }
 
         private static string LinkToSuperGroupMessage(ChatId chatId, long messageId)
@@ -244,6 +313,8 @@ namespace RaterBot
                         var newReaction = update.CallbackQuery.Data == "+";
                         if (newReaction == interaction.Reaction)
                         {
+                            var reaction = newReaction ? "👍" : "👎";
+                            await botClient.AnswerCallbackQueryAsync(update.CallbackQuery.Id, $"Ты уже поставил {reaction} этому посту!");
                             _logger.Information("No need to update reaction");
                             return;
                         }
@@ -341,12 +412,7 @@ namespace RaterBot
 
         private static string UserEscaped(User user)
         {
-            var first = user.FirstName ?? string.Empty;
-            var last = user.LastName ?? string.Empty;
-            var who = $"{first} {last}".Trim();
-            if (string.IsNullOrWhiteSpace(who))
-                who = "анонима";
-
+            var who = GetFirstLastName(user);
             var whoEscaped = new StringBuilder(who.Length);
             foreach (var c in who)
             {
@@ -354,7 +420,6 @@ namespace RaterBot
                     whoEscaped.Append('\\');
                 whoEscaped.Append(c);
             }
-
             return whoEscaped.ToString();
         }
 
@@ -362,18 +427,21 @@ namespace RaterBot
         {
             if (string.IsNullOrWhiteSpace(user.Username))
             {
-                var first = user.FirstName ?? string.Empty;
-                var last = user.LastName ?? string.Empty;
-                var who = $"{first} {last}".Trim();
-                if (who.Length == 0)
-                    who = "анонима";
-
+                var who = GetFirstLastName(user);
                 return $"поехавшего {who} без ника в телеге";
             }
-
             return $"От @{user.Username}";
         }
 
+        private static string GetFirstLastName(User user)
+        {
+            var first = user.FirstName ?? string.Empty;
+            var last = user.LastName ?? string.Empty;
+            var who = $"{first} {last}".Trim();
+            if (string.IsNullOrWhiteSpace(who))
+                who = "аноним";
+            return who;
+        }
 
         private static IServiceProvider CreateServices() =>
             new ServiceCollection()
