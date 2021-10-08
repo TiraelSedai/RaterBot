@@ -3,7 +3,7 @@
 namespace RaterBot.Database.Migrations
 {
     [Migration(20211006235400)]
-    public class Init : Migration
+    public sealed class Init : Migration
     {
         public override void Up()
         {

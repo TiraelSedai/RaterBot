@@ -12,7 +12,7 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace RaterBot
 {
-    class Program
+    internal sealed class Program
     {
         private static readonly Logger _logger = new LoggerConfiguration().WriteTo.Console().CreateLogger();
 
@@ -66,6 +66,12 @@ namespace RaterBot
                             if (update.Type == Telegram.Bot.Types.Enums.UpdateType.Message)
                             {
                                 var msg = update.Message;
+                                if (msg.Text == "/top_posts_week@mediarater_bot" || msg.Text == "/top_posts_week")
+                                {
+                                    await HandleTopWeekPosts(update);
+                                    continue;
+                                }
+
                                 if (msg.ReplyToMessage != null)
                                 {
                                     if (msg.Text == "/text@mediarater_bot" || msg.Text == "/text")
@@ -113,6 +119,81 @@ namespace RaterBot
                 }
             }
         }
+
+        private static async Task HandleTopWeekPosts(Update update)
+        {
+            var chat = update.Message.Chat;
+
+            if (chat.Type != Telegram.Bot.Types.Enums.ChatType.Supergroup && string.IsNullOrWhiteSpace(chat.Username))
+            {
+                await botClient.SendTextMessageAsync(chat, "Этот чат не является супергруппой и не имеет имени: нет возможности оставлять ссылки на посты");
+                _logger.Information($"{nameof(HandleTopWeekPosts)} - unable to link top posts, skipping");
+                return;
+            }
+
+            var sql = $"SELECT {nameof(Interaction)}.{nameof(Interaction.MessageId)}, COUNT(*), {nameof(Interaction)}.{nameof(Interaction.PosterId)}" +
+                $" FROM {nameof(Post)} INNER JOIN {nameof(Interaction)} ON {nameof(Post)}.{nameof(MessageId)} = {nameof(Interaction)}.{nameof(Interaction.MessageId)}" +
+                $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @WeekAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = true" +
+                $" GROUP BY {nameof(Interaction)}.{nameof(Interaction.MessageId)};";
+            var sqlParams = new { WeekAgo = DateTime.UtcNow - TimeSpan.FromDays(7), ChatId = chat.Id };
+            var plusQuery = await _dbConnection.Value.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
+            var plus = plusQuery.ToDictionary(x => x.MessageId, x => x.PlusCount);
+            var plusUsers = plusQuery.ToDictionary(x => x.MessageId, x => x.PosterId);
+            if (!plus.Any())
+            {
+                await botClient.SendTextMessageAsync(chat, "Не найдено заплюсованных постов за последнюю неделю");
+                _logger.Information($"{nameof(HandleTopWeekPosts)} - no upvoted posts, skipping");
+                return;
+            }
+            sql = $"SELECT {nameof(Interaction)}.{nameof(Interaction.MessageId)}, COUNT(*)" +
+                $" FROM {nameof(Post)} INNER JOIN {nameof(Interaction)} ON {nameof(Post)}.{nameof(MessageId)} = {nameof(Interaction)}.{nameof(Interaction.MessageId)}" +
+                $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @WeekAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = false" +
+                $" GROUP BY {nameof(Interaction)}.{nameof(Interaction.MessageId)};";
+            var minus = (await _dbConnection.Value.QueryAsync<(long MessageId, long MinusCount)>(sql, sqlParams)).ToDictionary(x => x.MessageId, y => y.MinusCount);
+
+            var keys = plus.Keys.ToList();
+            foreach (var key in keys)
+                plus[key] -= minus.GetValueOrDefault(key);
+            var topTen = plus.OrderByDescending(x => x.Value).Take(10);
+
+            var message = new StringBuilder(1024);
+            var i = 0;
+            var sg = chat.Type == Telegram.Bot.Types.Enums.ChatType.Supergroup;
+            foreach (var item in topTen)
+            {
+                switch (i)
+                {
+                    case 0:
+                        message.Append("🥇 ");
+                        break;
+                    case 1:
+                        message.Append($"{Environment.NewLine}🥈 ");
+                        break;
+                    case 2:
+                        message.Append($"{Environment.NewLine}🥉 ");
+                        break;
+                    default:
+                        message.Append($"{Environment.NewLine}{i+1} ");
+                        break;
+                }
+
+                var link = sg ? LinkToSuperGroupMessage(chat, item.Key) : LinkToGroupWithNameMessage(chat, item.Key);
+                message.Append(link);
+                message.Append(' ');
+                if (item.Value > 0)
+                    message.Append('+');
+                message.Append(item.Value);
+                i++;
+            }
+
+            await botClient.SendTextMessageAsync(chat, message.ToString());
+        }
+
+        private static string LinkToSuperGroupMessage(ChatId chatId, long messageId)
+            => $"https://t.me/c/{chatId.Identifier.ToString()[4..]}/{messageId}";
+
+        private static string LinkToGroupWithNameMessage(Chat chat, long messageId)
+            => $"https://t.me/{chat.Username}/{messageId}";
 
         private static async Task HandleCallbackData(Update update)
         {
@@ -268,10 +349,10 @@ namespace RaterBot
 
                 return $"поехавшего {who} без ника в телеге";
             }
-                
+
             return $"От @{user.Username}";
         }
-             
+
 
         private static IServiceProvider CreateServices() =>
             new ServiceCollection()

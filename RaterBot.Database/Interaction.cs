@@ -1,8 +1,6 @@
-﻿using System;
-
-namespace RaterBot.Database
+﻿namespace RaterBot.Database
 {
-    public class Interaction
+    public sealed class Interaction
     {
         public long Id { get; set; }
         public long ChatId { get; set; }

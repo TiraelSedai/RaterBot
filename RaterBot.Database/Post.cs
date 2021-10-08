@@ -1,10 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Text;
 
 namespace RaterBot.Database
 {
-    public class Post
+    public sealed class Post
     {
         public long Id { get; set; }
         public long ChatId { get; set; }
