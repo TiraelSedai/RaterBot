@@ -138,7 +138,7 @@ namespace RaterBot
             var sqlParams = new { WeekAgo = DateTime.UtcNow - TimeSpan.FromDays(7), ChatId = chat.Id };
             var plusQuery = await _dbConnection.Value.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
             var plus = plusQuery.ToDictionary(x => x.MessageId, x => x.PlusCount);
-            var plusUsers = plusQuery.ToDictionary(x => x.MessageId, x => x.PosterId);
+            var messageIdToUserId = plusQuery.ToDictionary(x => x.MessageId, x => x.PosterId);
             if (!plus.Any())
             {
                 await botClient.SendTextMessageAsync(chat, "Не найдено заплюсованных постов за последнюю неделю");
@@ -155,6 +155,16 @@ namespace RaterBot
             foreach (var key in keys)
                 plus[key] -= minus.GetValueOrDefault(key);
             var topTen = plus.OrderByDescending(x => x.Value).Take(10);
+
+            var topTenWithUsers = topTen.Select(x => x.Key).ToDictionary(x => x, x => new User());
+
+            var userIds = topTen.Select(x => messageIdToUserId[x.Key]).Distinct().ToList();
+            var userIdToUser = new Dictionary<long, User>(userIds.Count);
+            foreach (var id in userIds)
+            {
+                var member = await botClient.GetChatMemberAsync(chat, id);
+                userIdToUser.Add(id, member.User);
+            }
 
             var message = new StringBuilder(1024);
             var i = 0;
@@ -177,16 +187,21 @@ namespace RaterBot
                         break;
                 }
 
+                var user = userIdToUser[messageIdToUserId[item.Key]];
+
+                message.Append("От ");
+                message.Append($"[{UserEscaped(user)}](");
+
                 var link = sg ? LinkToSuperGroupMessage(chat, item.Key) : LinkToGroupWithNameMessage(chat, item.Key);
                 message.Append(link);
-                message.Append(' ');
+                message.Append(") ");
                 if (item.Value > 0)
-                    message.Append('+');
+                    message.Append("\\+");
                 message.Append(item.Value);
                 i++;
             }
 
-            await botClient.SendTextMessageAsync(chat, message.ToString());
+            await botClient.SendTextMessageAsync(chat, message.ToString(), Telegram.Bot.Types.Enums.ParseMode.MarkdownV2);
         }
 
         private static string LinkToSuperGroupMessage(ChatId chatId, long messageId)
@@ -320,6 +335,12 @@ namespace RaterBot
 
         private static string MentionUsername(User user)
         {
+            var whoEscaped = UserEscaped(user);
+            return $"От [{whoEscaped}](tg://user?id={user.Id})";
+        }
+
+        private static string UserEscaped(User user)
+        {
             var first = user.FirstName ?? string.Empty;
             var last = user.LastName ?? string.Empty;
             var who = $"{first} {last}".Trim();
@@ -334,7 +355,7 @@ namespace RaterBot
                 whoEscaped.Append(c);
             }
 
-            return $"От [{whoEscaped}](tg://user?id={user.Id})";
+            return whoEscaped.ToString();
         }
 
         private static string AtMentionUsername(User user)
