@@ -129,13 +129,13 @@ namespace RaterBot
         private static string GetMessageIdPlusCountPosterIdSql() =>
             $"SELECT {nameof(Interaction)}.{nameof(Interaction.MessageId)}, COUNT(*), {nameof(Interaction)}.{nameof(Interaction.PosterId)}" +
             $" FROM {nameof(Post)} INNER JOIN {nameof(Interaction)} ON {nameof(Post)}.{nameof(MessageId)} = {nameof(Interaction)}.{nameof(Interaction.MessageId)}" +
-            $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @WeekAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = true" +
+            $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Interaction)}.{nameof(Interaction.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @WeekAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = true" +
             $" GROUP BY {nameof(Interaction)}.{nameof(Interaction.MessageId)};";
 
         private static string GetMessageIdMinusCountSql() =>
             $"SELECT {nameof(Interaction)}.{nameof(Interaction.MessageId)}, COUNT(*)" +
             $" FROM {nameof(Post)} INNER JOIN {nameof(Interaction)} ON {nameof(Post)}.{nameof(MessageId)} = {nameof(Interaction)}.{nameof(Interaction.MessageId)}" +
-            $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @WeekAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = false" +
+            $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Interaction)}.{nameof(Interaction.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @WeekAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = false" +
             $" GROUP BY {nameof(Interaction)}.{nameof(Interaction.MessageId)};";
 
         // TODO: A lot of duplicated code between HandleTopWeekPosts and HandleTopMonthAuthors. Refactor
@@ -143,7 +143,7 @@ namespace RaterBot
         private static async Task HandleTopMonthAuthors(Update update)
         {
             var chat = update.Message.Chat;
-            string sql = GetMessageIdPlusCountPosterIdSql();
+            var sql = GetMessageIdPlusCountPosterIdSql();
             var sqlParams = new { WeekAgo = DateTime.UtcNow - TimeSpan.FromDays(30), ChatId = chat.Id };
             var plus = await _dbConnection.Value.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
             if (!plus.Any())
@@ -216,11 +216,11 @@ namespace RaterBot
             var keys = plus.Keys.ToList();
             foreach (var key in keys)
                 plus[key] -= minus.GetValueOrDefault(key);
-            var topTen = plus.OrderByDescending(x => x.Value).Take(10);
+            var topPosts = plus.OrderByDescending(x => x.Value).Take(20);
 
-            var topTenWithUsers = topTen.Select(x => x.Key).ToDictionary(x => x, x => new User());
+            var topTenWithUsers = topPosts.Select(x => x.Key).ToDictionary(x => x, x => new User());
 
-            var userIds = topTen.Select(x => messageIdToUserId[x.Key]).Distinct().ToList();
+            var userIds = topPosts.Select(x => messageIdToUserId[x.Key]).Distinct().ToList();
             var userIdToUser = new Dictionary<long, User>(userIds.Count);
             foreach (var id in userIds)
             {
@@ -233,7 +233,7 @@ namespace RaterBot
             message.Append(Environment.NewLine);
             var i = 0;
             var sg = chat.Type == Telegram.Bot.Types.Enums.ChatType.Supergroup;
-            foreach (var item in topTen)
+            foreach (var item in topPosts)
             {
                 AppendPlace(message, i);
 
