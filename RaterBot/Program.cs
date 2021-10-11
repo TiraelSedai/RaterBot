@@ -77,6 +77,10 @@ namespace RaterBot
                                     await HandleTopMonthAuthors(update);
                                     continue;
                                 }
+                                
+                                if (msg.Text.Contains("/skip") || msg.Text.Contains("/ignore") || msg.Text.Contains("#skip") || msg.Text.Contains("#ignore")) {
+                                    continue;
+                                }
 
                                 if (msg.ReplyToMessage != null)
                                 {
