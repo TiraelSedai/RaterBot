@@ -77,10 +77,6 @@ namespace RaterBot
                                     await HandleTopMonthAuthors(update);
                                     continue;
                                 }
-                                
-                                if (msg.Text.Contains("/skip") || msg.Text.Contains("/ignore") || msg.Text.Contains("#skip") || msg.Text.Contains("#ignore")) {
-                                    continue;
-                                }
 
                                 if (msg.ReplyToMessage != null)
                                 {
@@ -114,6 +110,11 @@ namespace RaterBot
                                     || (msg.Type == Telegram.Bot.Types.Enums.MessageType.Document
                                         && (msg.Document.MimeType.StartsWith("image") || msg.Document.MimeType.StartsWith("video"))))
                                 {
+                                    if (!string.IsNullOrWhiteSpace(msg.Caption) && (msg.Caption.Contains("/skip") || msg.Caption.Contains("/ignore") || msg.Caption.Contains("#skip") || msg.Caption.Contains("#ignore")))
+                                    {
+                                        _logger.Information("Media message that should be ignored");
+                                        continue;
+                                    }
                                     await HandleMediaMessage(msg);
                                 }
                             }
