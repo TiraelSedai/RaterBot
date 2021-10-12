@@ -219,7 +219,7 @@ namespace RaterBot
             }
 
             var sql = GetMessageIdPlusCountPosterIdSql();
-            var sqlParams = new { TimeAgo = DateTime.UtcNow - TimeSpan.FromDays(7), ChatId = chat.Id };
+            var sqlParams = new { TimeAgo = DateTime.UtcNow.AddDays(-7), ChatId = chat.Id };
             var plusQuery = await _dbConnection.Value.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
             var plus = plusQuery.ToDictionary(x => x.MessageId, x => x.PlusCount);
             var messageIdToUserId = plusQuery.ToDictionary(x => x.MessageId, x => x.PosterId);
