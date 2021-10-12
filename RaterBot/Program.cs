@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using RaterBot.Database;
 using Serilog;
 using Serilog.Core;
+using System.Diagnostics;
 using System.Text;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -16,7 +17,7 @@ namespace RaterBot
     {
         private static readonly Logger _logger = new LoggerConfiguration().WriteTo.Console().CreateLogger();
 
-        static readonly ITelegramBotClient botClient = new TelegramBotClient(Environment.GetEnvironmentVariable("TELEGRAM_MEDIA_RATER_BOT_API"));
+        static readonly ITelegramBotClient botClient = new TelegramBotClient(Environment.GetEnvironmentVariable("TELEGRAM_MEDIA_RATER_BOT_API") ?? throw new Exception("TELEGRAM_MEDIA_RATER_BOT_API enviroment variable not set"));
         const int updateLimit = 100;
         const int timeout = 120;
         private const string dbPath = "sqlite.db";
@@ -31,8 +32,8 @@ namespace RaterBot
 
         private static readonly InlineKeyboardMarkup _newPostIkm = new(new InlineKeyboardButton[]
         {
-            new InlineKeyboardButton{ CallbackData = "+", Text = "👍" },
-            new InlineKeyboardButton{ CallbackData = "-", Text = "👎" },
+            new InlineKeyboardButton("👍"){ CallbackData = "+" },
+            new InlineKeyboardButton("👎"){ CallbackData = "-" }
         });
 
         private static void InitAndMigrateDb()
@@ -44,7 +45,7 @@ namespace RaterBot
             MigrateDatabase(scope.ServiceProvider);
         }
 
-        static async Task Main(string[] args)
+        static async Task Main()
         {
             InitAndMigrateDb();
 
@@ -77,6 +78,7 @@ namespace RaterBot
 
         private static async Task HandleUpdate(User me, Update update)
         {
+            Debug.Assert(me.Username != null);
             try
             {
                 if (update.Type == Telegram.Bot.Types.Enums.UpdateType.CallbackQuery)
@@ -85,49 +87,42 @@ namespace RaterBot
                 if (update.Type == Telegram.Bot.Types.Enums.UpdateType.Message)
                 {
                     var msg = update.Message;
-                    if (msg.Text == "/top_posts_week@mediarater_bot" || msg.Text == "/top_posts_week")
+                    Debug.Assert(msg?.Text != null);
+                    if (IsBotCommand(me.Username, msg.Text, "/top_posts_week"))
                     {
                         await HandleTopWeekPosts(update);
                         return;
                     }
 
-                    if (msg.Text == "/top_authors_month@mediarater_bot" || msg.Text == "/top_authors_month")
+                    if (IsBotCommand(me.Username, msg.Text, "/top_authors_month"))
                     {
                         await HandleTopMonthAuthors(update);
                         return;
                     }
 
-                    if (msg.ReplyToMessage != null)
+                    if (IsBotCommand(me.Username, msg.Text, "/text"))
                     {
-                        if (msg.Text == "/text@mediarater_bot" || msg.Text == "/text")
+                        if (msg.ReplyToMessage?.From?.Id == me.Id)
                         {
-                            if (msg.ReplyToMessage.From.Id == me.Id)
-                            {
-                                await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку не от бота");
-                                return;
-                            }
-                            if (string.IsNullOrWhiteSpace(msg.ReplyToMessage.Text))
-                            {
-                                await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
-                                return;
-                            }
-                            await HandleTextReplyAsync(update);
-                        }
-                        return;
-                    }
-                    else
-                    {
-                        if (msg.Text == "/text@mediarater_bot" || msg.Text == "/text")
-                        {
-                            await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
+                            var m = await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку не от бота");
+                            _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
+                            _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
                             return;
                         }
+                        if (string.IsNullOrWhiteSpace(msg.ReplyToMessage?.Text))
+                        {
+                            var m = await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
+                            _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
+                            _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
+                            return;
+                        }
+                        await HandleTextReplyAsync(update);
+                        return;
                     }
 
-                    if (msg.Type == Telegram.Bot.Types.Enums.MessageType.Photo
-                        || msg.Type == Telegram.Bot.Types.Enums.MessageType.Video
+                    if (msg.Type == Telegram.Bot.Types.Enums.MessageType.Photo || msg.Type == Telegram.Bot.Types.Enums.MessageType.Video
                         || (msg.Type == Telegram.Bot.Types.Enums.MessageType.Document
-                            && (msg.Document.MimeType.StartsWith("image") || msg.Document.MimeType.StartsWith("video"))))
+                            && (msg.Document?.MimeType != null && (msg.Document.MimeType.StartsWith("image") || msg.Document.MimeType.StartsWith("video")))))
                     {
                         if (!string.IsNullOrWhiteSpace(msg.Caption) && (msg.Caption.Contains("/skip") || msg.Caption.Contains("/ignore") || msg.Caption.Contains("#skip") || msg.Caption.Contains("#ignore")))
                         {
@@ -161,6 +156,7 @@ namespace RaterBot
 
         private static async Task HandleTopMonthAuthors(Update update)
         {
+            Debug.Assert(update.Message != null);
             var chat = update.Message.Chat;
             var sql = GetMessageIdPlusCountPosterIdSql();
             var sqlParams = new { TimeAgo = DateTime.UtcNow.AddDays(-30), ChatId = chat.Id };
@@ -204,11 +200,14 @@ namespace RaterBot
                 i++;
             }
 
-            await botClient.SendTextMessageAsync(chat, message.ToString());
+            var m = await botClient.SendTextMessageAsync(chat, message.ToString());
+            _ = RemoveAfterSomeTime(chat, update.Message.MessageId);
+            _ = RemoveAfterSomeTime(chat, m.MessageId);
         }
 
         private static async Task HandleTopWeekPosts(Update update)
         {
+            Debug.Assert(update.Message != null);
             var chat = update.Message.Chat;
 
             if (chat.Type != Telegram.Bot.Types.Enums.ChatType.Supergroup && string.IsNullOrWhiteSpace(chat.Username))
@@ -270,8 +269,19 @@ namespace RaterBot
                 i++;
             }
 
-            await botClient.SendTextMessageAsync(chat, message.ToString(), Telegram.Bot.Types.Enums.ParseMode.MarkdownV2);
+            var m = await botClient.SendTextMessageAsync(chat, message.ToString(), Telegram.Bot.Types.Enums.ParseMode.MarkdownV2);
+            _ = RemoveAfterSomeTime(chat, m.MessageId);
+            _ = RemoveAfterSomeTime(chat, update.Message.MessageId);
         }
+
+        private static async Task RemoveAfterSomeTime(Chat chat, int messageId)
+        {
+            await Task.Delay(TimeSpan.FromMinutes(10));
+            await botClient.DeleteMessageAsync(chat, messageId);
+        }
+
+        private static bool IsBotCommand(string username, string? msgText, string command)
+            => msgText != null && (msgText == command || msgText == $"{command}@{username}");
 
         private static void AppendPlace(StringBuilder stringBuilder, int i)
         {
@@ -292,15 +302,17 @@ namespace RaterBot
             }
         }
 
-        private static string LinkToSuperGroupMessage(ChatId chatId, long messageId)
-            => $"https://t.me/c/{chatId.Identifier.ToString()[4..]}/{messageId}";
+        private static string LinkToSuperGroupMessage(Chat chat, long messageId)
+            => $"https://t.me/c/{chat.Id.ToString()[4..]}/{messageId}";
 
         private static string LinkToGroupWithNameMessage(Chat chat, long messageId)
             => $"https://t.me/{chat.Username}/{messageId}";
 
         private static async Task HandleCallbackData(Update update)
         {
+            Debug.Assert(update.CallbackQuery != null);
             var msg = update.CallbackQuery.Message;
+            Debug.Assert(msg != null);
             var connection = _dbConnection.Value;
             var chatAndMessageIdParams = new { ChatId = msg.Chat.Id, msg.MessageId };
             var updateData = update.CallbackQuery.Data;
@@ -382,8 +394,8 @@ namespace RaterBot
 
             var ikm = new InlineKeyboardMarkup(new InlineKeyboardButton[]
             {
-                new InlineKeyboardButton{ CallbackData = "+", Text = plusText },
-                new InlineKeyboardButton{ CallbackData = "-", Text = minusText },
+                new InlineKeyboardButton(plusText){ CallbackData = "+" },
+                new InlineKeyboardButton(minusText){ CallbackData = "-" }
             });
 
             try
@@ -392,7 +404,7 @@ namespace RaterBot
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, nameof(ITelegramBotClient.EditMessageReplyMarkupAsync));
+                _logger.Error(ex, "EditMessageReplyMarkupAsync");
             }
         }
 
@@ -400,9 +412,11 @@ namespace RaterBot
         {
             _logger.Information("New valid text message");
             var msg = update.Message;
+            Debug.Assert(msg != null);
             var replyTo = msg.ReplyToMessage;
-
+            Debug.Assert(replyTo != null);
             var from = replyTo.From;
+            Debug.Assert(from != null);
 
             var newMessage = await botClient.SendTextMessageAsync(msg.Chat, $"{AtMentionUsername(from)}:{Environment.NewLine}{replyTo.Text}", replyMarkup: _newPostIkm);
             try
@@ -414,7 +428,7 @@ namespace RaterBot
                 _logger.Warning(are, "Unable to delete message in HandleTextReplyAsync, duplicated update?");
             }
 
-            if (msg.From.Id == replyTo.From.Id)
+            if (msg.From?.Id == replyTo.From?.Id)
                 await botClient.DeleteMessageAsync(msg.Chat.Id, replyTo.MessageId);
 
             await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
@@ -430,6 +444,7 @@ namespace RaterBot
         {
             _logger.Information("New valid media message");
             var from = msg.From;
+            Debug.Assert(from != null);
             try
             {
                 var newMessage = await botClient.CopyMessageAsync(msg.Chat.Id, msg.Chat.Id, msg.MessageId, replyMarkup: _newPostIkm, caption: MentionUsername(from), parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2);
