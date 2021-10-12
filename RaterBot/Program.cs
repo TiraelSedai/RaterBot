@@ -48,6 +48,9 @@ namespace RaterBot
         {
             InitAndMigrateDb();
 
+            await _dbConnection.Value.ExecuteAsync("PRAGMA synchronous = OFF;");
+            await _dbConnection.Value.ExecuteAsync("PRAGMA journal_mode = WAL;");
+
             var me = await botClient.GetMeAsync();
 
             var offset = 0;
@@ -59,66 +62,7 @@ namespace RaterBot
                     if (updates?.Any() == true)
                     {
                         foreach (var update in updates)
-                        {
-                            if (update.Type == Telegram.Bot.Types.Enums.UpdateType.CallbackQuery)
-                                await HandleCallbackData(update);
-
-                            if (update.Type == Telegram.Bot.Types.Enums.UpdateType.Message)
-                            {
-                                var msg = update.Message;
-                                if (msg.Text == "/top_posts_week@mediarater_bot" || msg.Text == "/top_posts_week")
-                                {
-                                    await HandleTopWeekPosts(update);
-                                    continue;
-                                }
-
-                                if (msg.Text == "/top_authors_month@mediarater_bot" || msg.Text == "/top_authors_month")
-                                {
-                                    await HandleTopMonthAuthors(update);
-                                    continue;
-                                }
-
-                                if (msg.ReplyToMessage != null)
-                                {
-                                    if (msg.Text == "/text@mediarater_bot" || msg.Text == "/text")
-                                    {
-                                        if (msg.ReplyToMessage.From.Id == me.Id)
-                                        {
-                                            await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку не от бота");
-                                            continue;
-                                        }
-                                        if (string.IsNullOrWhiteSpace(msg.ReplyToMessage.Text))
-                                        {
-                                            await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
-                                            continue;
-                                        }
-                                        await HandleTextReplyAsync(update);
-                                    }
-                                    continue;
-                                }
-                                else
-                                {
-                                    if (msg.Text == "/text@mediarater_bot" || msg.Text == "/text")
-                                    {
-                                        await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
-                                        continue;
-                                    }
-                                }
-
-                                if (msg.Type == Telegram.Bot.Types.Enums.MessageType.Photo
-                                    || msg.Type == Telegram.Bot.Types.Enums.MessageType.Video
-                                    || (msg.Type == Telegram.Bot.Types.Enums.MessageType.Document
-                                        && (msg.Document.MimeType.StartsWith("image") || msg.Document.MimeType.StartsWith("video"))))
-                                {
-                                    if (!string.IsNullOrWhiteSpace(msg.Caption) && (msg.Caption.Contains("/skip") || msg.Caption.Contains("/ignore") || msg.Caption.Contains("#skip") || msg.Caption.Contains("#ignore")))
-                                    {
-                                        _logger.Information("Media message that should be ignored");
-                                        continue;
-                                    }
-                                    await HandleMediaMessage(msg);
-                                }
-                            }
-                        }
+                            await HandleUpdate(me, update);
 
                         offset = updates.Max(u => u.Id) + 1;
                     }
@@ -131,16 +75,86 @@ namespace RaterBot
             }
         }
 
+        private static async Task HandleUpdate(User me, Update update)
+        {
+            try
+            {
+                if (update.Type == Telegram.Bot.Types.Enums.UpdateType.CallbackQuery)
+                    await HandleCallbackData(update);
+
+                if (update.Type == Telegram.Bot.Types.Enums.UpdateType.Message)
+                {
+                    var msg = update.Message;
+                    if (msg.Text == "/top_posts_week@mediarater_bot" || msg.Text == "/top_posts_week")
+                    {
+                        await HandleTopWeekPosts(update);
+                        return;
+                    }
+
+                    if (msg.Text == "/top_authors_month@mediarater_bot" || msg.Text == "/top_authors_month")
+                    {
+                        await HandleTopMonthAuthors(update);
+                        return;
+                    }
+
+                    if (msg.ReplyToMessage != null)
+                    {
+                        if (msg.Text == "/text@mediarater_bot" || msg.Text == "/text")
+                        {
+                            if (msg.ReplyToMessage.From.Id == me.Id)
+                            {
+                                await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку не от бота");
+                                return;
+                            }
+                            if (string.IsNullOrWhiteSpace(msg.ReplyToMessage.Text))
+                            {
+                                await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
+                                return;
+                            }
+                            await HandleTextReplyAsync(update);
+                        }
+                        return;
+                    }
+                    else
+                    {
+                        if (msg.Text == "/text@mediarater_bot" || msg.Text == "/text")
+                        {
+                            await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
+                            return;
+                        }
+                    }
+
+                    if (msg.Type == Telegram.Bot.Types.Enums.MessageType.Photo
+                        || msg.Type == Telegram.Bot.Types.Enums.MessageType.Video
+                        || (msg.Type == Telegram.Bot.Types.Enums.MessageType.Document
+                            && (msg.Document.MimeType.StartsWith("image") || msg.Document.MimeType.StartsWith("video"))))
+                    {
+                        if (!string.IsNullOrWhiteSpace(msg.Caption) && (msg.Caption.Contains("/skip") || msg.Caption.Contains("/ignore") || msg.Caption.Contains("#skip") || msg.Caption.Contains("#ignore")))
+                        {
+                            _logger.Information("Media message that should be ignored");
+                            return;
+                        }
+                        await HandleMediaMessage(msg);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "General update exception inside FOREACH loop");
+                await Task.Delay(TimeSpan.FromSeconds(1));
+            }
+        }
+
         private static string GetMessageIdPlusCountPosterIdSql() =>
             $"SELECT {nameof(Interaction)}.{nameof(Interaction.MessageId)}, COUNT(*), {nameof(Interaction)}.{nameof(Interaction.PosterId)}" +
             $" FROM {nameof(Post)} INNER JOIN {nameof(Interaction)} ON {nameof(Post)}.{nameof(MessageId)} = {nameof(Interaction)}.{nameof(Interaction.MessageId)}" +
-            $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Interaction)}.{nameof(Interaction.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @WeekAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = true" +
+            $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Interaction)}.{nameof(Interaction.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @TimeAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = true" +
             $" GROUP BY {nameof(Interaction)}.{nameof(Interaction.MessageId)};";
 
         private static string GetMessageIdMinusCountSql() =>
             $"SELECT {nameof(Interaction)}.{nameof(Interaction.MessageId)}, COUNT(*)" +
             $" FROM {nameof(Post)} INNER JOIN {nameof(Interaction)} ON {nameof(Post)}.{nameof(MessageId)} = {nameof(Interaction)}.{nameof(Interaction.MessageId)}" +
-            $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Interaction)}.{nameof(Interaction.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @WeekAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = false" +
+            $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Interaction)}.{nameof(Interaction.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @TimeAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = false" +
             $" GROUP BY {nameof(Interaction)}.{nameof(Interaction.MessageId)};";
 
         // TODO: A lot of duplicated code between HandleTopWeekPosts and HandleTopMonthAuthors. Refactor
@@ -149,7 +163,7 @@ namespace RaterBot
         {
             var chat = update.Message.Chat;
             var sql = GetMessageIdPlusCountPosterIdSql();
-            var sqlParams = new { WeekAgo = DateTime.UtcNow - TimeSpan.FromDays(30), ChatId = chat.Id };
+            var sqlParams = new { TimeAgo = DateTime.UtcNow.AddDays(-30), ChatId = chat.Id };
             var plus = await _dbConnection.Value.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
             if (!plus.Any())
             {
@@ -205,7 +219,7 @@ namespace RaterBot
             }
 
             var sql = GetMessageIdPlusCountPosterIdSql();
-            var sqlParams = new { WeekAgo = DateTime.UtcNow - TimeSpan.FromDays(7), ChatId = chat.Id };
+            var sqlParams = new { TimeAgo = DateTime.UtcNow.AddDays(-7), ChatId = chat.Id };
             var plusQuery = await _dbConnection.Value.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
             var plus = plusQuery.ToDictionary(x => x.MessageId, x => x.PlusCount);
             var messageIdToUserId = plusQuery.ToDictionary(x => x.MessageId, x => x.PosterId);
@@ -287,77 +301,98 @@ namespace RaterBot
         private static async Task HandleCallbackData(Update update)
         {
             var msg = update.CallbackQuery.Message;
-            var rm = msg.ReplyMarkup;
-            var firstRow = rm.InlineKeyboard.First();
             var connection = _dbConnection.Value;
-            switch (update.CallbackQuery.Data)
+            var chatAndMessageIdParams = new { ChatId = msg.Chat.Id, msg.MessageId };
+            var updateData = update.CallbackQuery.Data;
+            if (updateData != "-" && updateData != "+")
             {
-                case "+":
-                case "-":
-                    _logger.Debug("Valid callback request");
-                    var sql = $"SELECT * FROM {nameof(Post)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
-                    var post = await connection.QuerySingleOrDefaultAsync<Post>(sql, new { ChatId = msg.Chat.Id, msg.MessageId });
-                    if (post == null)
-                    {
-                        _logger.Error("Cannot find post in the database, ChatId = {ChatId}, MessageId = {MessageId}", msg.Chat.Id, msg.MessageId);
-                        return;
-                    }
+                _logger.Warning("Invalid callback query data: {Data}", updateData);
+                return;
+            }
 
-                    if (post.PosterId == update.CallbackQuery.From.Id)
-                    {
-                        await botClient.AnswerCallbackQueryAsync(update.CallbackQuery.Id, "Нельзя голосовать за свои посты!");
-                        return;
-                    }
+            _logger.Debug("Valid callback request");
+            var sql = $"SELECT * FROM {nameof(Post)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
+            var post = await connection.QuerySingleOrDefaultAsync<Post>(sql, new { ChatId = msg.Chat.Id, msg.MessageId });
+            if (post == null)
+            {
+                _logger.Error("Cannot find post in the database, ChatId = {ChatId}, MessageId = {MessageId}", msg.Chat.Id, msg.MessageId);
+                try
+                {
+                    await botClient.EditMessageReplyMarkupAsync(msg.Chat.Id, msg.MessageId, InlineKeyboardMarkup.Empty());
+                }
+                catch (Telegram.Bot.Exceptions.ApiRequestException e)
+                {
+                    _logger.Warning(e, "Unable to set empty reply markup, trying to delete post");
+                    await botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
+                }
+                sql = $"SELECT * FROM {nameof(Interaction)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
+                await connection.QueryAsync<Interaction>(sql, chatAndMessageIdParams);
+                return;
+            }
 
-                    sql = $"SELECT * FROM {nameof(Interaction)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
-                    var interactions = (await connection.QueryAsync<Interaction>(sql, new { ChatId = msg.Chat.Id, msg.MessageId })).ToList();
-                    var interaction = interactions.SingleOrDefault(i => i.UserId == update.CallbackQuery.From.Id);
+            if (post.PosterId == update.CallbackQuery.From.Id)
+            {
+                await botClient.AnswerCallbackQueryAsync(update.CallbackQuery.Id, "Нельзя голосовать за свои посты!");
+                return;
+            }
 
-                    if (interaction != null)
-                    {
-                        var newReaction = update.CallbackQuery.Data == "+";
-                        if (newReaction == interaction.Reaction)
-                        {
-                            var reaction = newReaction ? "👍" : "👎";
-                            await botClient.AnswerCallbackQueryAsync(update.CallbackQuery.Id, $"Ты уже поставил {reaction} этому посту!");
-                            _logger.Information("No need to update reaction");
-                            return;
-                        }
-                        sql = $"UPDATE {nameof(Interaction)} SET {nameof(Interaction.Reaction)} = @Reaction WHERE {nameof(Interaction.Id)} = @Id;";
-                        await connection.ExecuteAsync(sql, new { Reaction = newReaction, interaction.Id });
-                        interaction.Reaction = newReaction;
-                    }
-                    else
-                    {
-                        sql = $"INSERT INTO {nameof(Interaction)} ({nameof(Interaction.ChatId)}, {nameof(Interaction.UserId)}, {nameof(Interaction.MessageId)}, {nameof(Interaction.Reaction)}, {nameof(Interaction.PosterId)}) VALUES (@ChatId, @UserId, @MessageId, @Reaction, @PosterId);";
-                        await connection.ExecuteAsync(sql, new { Reaction = update.CallbackQuery.Data == "+", ChatId = msg.Chat.Id, UserId = update.CallbackQuery.From.Id, msg.MessageId, post.PosterId });
-                        interactions.Add(new Interaction { Reaction = update.CallbackQuery.Data == "+" });
-                    }
+            sql = $"SELECT * FROM {nameof(Interaction)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
+            var interactions = (await connection.QueryAsync<Interaction>(sql, chatAndMessageIdParams)).ToList();
+            var interaction = interactions.SingleOrDefault(i => i.UserId == update.CallbackQuery.From.Id);
 
-                    var likes = interactions.Where(i => i.Reaction).Count();
-                    var dislikes = interactions.Count - likes;
-                    var plusText = likes > 0 ? $"{likes} 👍" : "👍";
-                    var minusText = dislikes > 0 ? $"{dislikes} 👎" : "👎";
+            var newReaction = updateData == "+";
+            if (interaction != null)
+            {
+                if (newReaction == interaction.Reaction)
+                {
+                    var reaction = newReaction ? "👍" : "👎";
+                    await botClient.AnswerCallbackQueryAsync(update.CallbackQuery.Id, $"Ты уже поставил {reaction} этому посту");
+                    _logger.Information("No need to update reaction");
+                    return;
+                }
+                sql = $"UPDATE {nameof(Interaction)} SET {nameof(Interaction.Reaction)} = @Reaction WHERE {nameof(Interaction.Id)} = @Id;";
+                await connection.ExecuteAsync(sql, new { Reaction = newReaction, interaction.Id });
+                interaction.Reaction = newReaction;
+            }
+            else
+            {
+                sql = $"INSERT INTO {nameof(Interaction)} ({nameof(Interaction.ChatId)}, {nameof(Interaction.UserId)}, {nameof(Interaction.MessageId)}, {nameof(Interaction.Reaction)}, {nameof(Interaction.PosterId)}) VALUES (@ChatId, @UserId, @MessageId, @Reaction, @PosterId);";
+                await connection.ExecuteAsync(sql, new { Reaction = newReaction, ChatId = msg.Chat.Id, UserId = update.CallbackQuery.From.Id, msg.MessageId, post.PosterId });
+                interactions.Add(new Interaction { Reaction = newReaction });
+            }
 
-                    var ikm = new InlineKeyboardMarkup(new InlineKeyboardButton[]
-                    {
-                        new InlineKeyboardButton{ CallbackData = "+", Text = plusText },
-                        new InlineKeyboardButton{ CallbackData = "-", Text = minusText },
-                    });
+            var likes = interactions.Where(i => i.Reaction).Count();
+            var dislikes = interactions.Count - likes;
 
-                    var chat = new ChatId(update.CallbackQuery.Message.Chat.Id);
-                    try
-                    {
-                        await botClient.EditMessageReplyMarkupAsync(chat, update.CallbackQuery.Message.MessageId, ikm);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.Error(ex, nameof(ITelegramBotClient.EditMessageReplyMarkupAsync));
-                    }
-                    break;
-                default:
-                    _logger.Warning("Invalid callback query data");
-                    break;
+            if (DateTime.UtcNow.AddMinutes(-5) > post.Timestamp && dislikes > 2 * likes + 3)
+            {
+                _logger.Information("Deleting post. Dislikes = {Dislikes}, Likes = {Likes}", dislikes, likes);
+                await botClient.DeleteMessageAsync(msg.Chat, msg.MessageId);
+                sql = $"DELETE FROM {nameof(Post)} WHERE {nameof(Post.Id)} = @Id;";
+                await _dbConnection.Value.ExecuteAsync(sql, new { post.Id });
+                sql = $"DELETE FROM {nameof(Interaction)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
+                var deletedRows = await _dbConnection.Value.ExecuteAsync(sql, chatAndMessageIdParams);
+                _logger.Debug("Deleted {Count} rows from Interaction", deletedRows);
+                await botClient.AnswerCallbackQueryAsync(update.CallbackQuery.Id, "Твой голос стал решающей каплей, этот пост удалён");
+                return;
+            }
+
+            var plusText = likes > 0 ? $"{likes} 👍" : "👍";
+            var minusText = dislikes > 0 ? $"{dislikes} 👎" : "👎";
+
+            var ikm = new InlineKeyboardMarkup(new InlineKeyboardButton[]
+            {
+                new InlineKeyboardButton{ CallbackData = "+", Text = plusText },
+                new InlineKeyboardButton{ CallbackData = "-", Text = minusText },
+            });
+
+            try
+            {
+                await botClient.EditMessageReplyMarkupAsync(msg.Chat, msg.MessageId, ikm);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, nameof(ITelegramBotClient.EditMessageReplyMarkupAsync));
             }
         }
 
