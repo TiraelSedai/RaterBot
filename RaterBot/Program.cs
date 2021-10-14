@@ -19,7 +19,7 @@ namespace RaterBot
 
         static readonly ITelegramBotClient botClient = new TelegramBotClient(Environment.GetEnvironmentVariable("TELEGRAM_MEDIA_RATER_BOT_API") ?? throw new Exception("TELEGRAM_MEDIA_RATER_BOT_API enviroment variable not set"));
         const int updateLimit = 100;
-        const int timeout = 120;
+        const int timeout = 1800;
         private const string dbPath = "sqlite.db";
 
         private static readonly Lazy<SqliteConnection> _dbConnection = new(() => new SqliteConnection(_connectionString));
@@ -43,14 +43,17 @@ namespace RaterBot
             var serviceProvider = CreateServices();
             using var scope = serviceProvider.CreateScope();
             MigrateDatabase(scope.ServiceProvider);
+
+            _dbConnection.Value.Execute("PRAGMA synchronous = OFF;");
+            _dbConnection.Value.Execute("PRAGMA journal_mode = WAL;");
+            _dbConnection.Value.Execute("PRAGMA temp_store = memory;");
+            _dbConnection.Value.Execute("PRAGMA mmap_size = 30000000000;");
+            _dbConnection.Value.Execute("PRAGMA vacuum;");
         }
 
         static async Task Main()
         {
             InitAndMigrateDb();
-
-            await _dbConnection.Value.ExecuteAsync("PRAGMA synchronous = OFF;");
-            await _dbConnection.Value.ExecuteAsync("PRAGMA journal_mode = WAL;");
 
             var me = await botClient.GetMeAsync();
 
@@ -66,6 +69,7 @@ namespace RaterBot
                             await HandleUpdate(me, update);
 
                         offset = updates.Max(u => u.Id) + 1;
+                        await _dbConnection.Value.ExecuteAsync("PRAGMA optimize;");
                     }
                 }
                 catch (Exception ex)
@@ -88,15 +92,26 @@ namespace RaterBot
                 {
                     var msg = update.Message;
                     Debug.Assert(msg?.Text != null);
+
+                    if (IsBotCommand(me.Username, msg.Text, "/top_posts_day"))
+                    {
+                        await HandleTopPosts(update, Period.Day);
+                        return;
+                    }
                     if (IsBotCommand(me.Username, msg.Text, "/top_posts_week"))
                     {
-                        await HandleTopWeekPosts(update);
+                        await HandleTopPosts(update, Period.Week);
                         return;
                     }
 
+                    if (IsBotCommand(me.Username, msg.Text, "/top_authors_week"))
+                    {
+                        await HandleTopAuthors(update, Period.Week);
+                        return;
+                    }
                     if (IsBotCommand(me.Username, msg.Text, "/top_authors_month"))
                     {
-                        await HandleTopMonthAuthors(update);
+                        await HandleTopAuthors(update, Period.Month);
                         return;
                     }
 
@@ -140,34 +155,32 @@ namespace RaterBot
             }
         }
 
-        private static string GetMessageIdPlusCountPosterIdSql() =>
+        private static string _messageIdPlusCountPosterIdSql =
             $"SELECT {nameof(Interaction)}.{nameof(Interaction.MessageId)}, COUNT(*), {nameof(Interaction)}.{nameof(Interaction.PosterId)}" +
             $" FROM {nameof(Post)} INNER JOIN {nameof(Interaction)} ON {nameof(Post)}.{nameof(MessageId)} = {nameof(Interaction)}.{nameof(Interaction.MessageId)}" +
             $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Interaction)}.{nameof(Interaction.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @TimeAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = true" +
             $" GROUP BY {nameof(Interaction)}.{nameof(Interaction.MessageId)};";
 
-        private static string GetMessageIdMinusCountSql() =>
+        private static string _messageIdMinusCountSql =
             $"SELECT {nameof(Interaction)}.{nameof(Interaction.MessageId)}, COUNT(*)" +
             $" FROM {nameof(Post)} INNER JOIN {nameof(Interaction)} ON {nameof(Post)}.{nameof(MessageId)} = {nameof(Interaction)}.{nameof(Interaction.MessageId)}" +
             $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Interaction)}.{nameof(Interaction.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @TimeAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = false" +
             $" GROUP BY {nameof(Interaction)}.{nameof(Interaction.MessageId)};";
 
-        // TODO: A lot of duplicated code between HandleTopWeekPosts and HandleTopMonthAuthors. Refactor
-
-        private static async Task HandleTopMonthAuthors(Update update)
+        private static async Task HandleTopAuthors(Update update, Period period)
         {
             Debug.Assert(update.Message != null);
             var chat = update.Message.Chat;
-            var sql = GetMessageIdPlusCountPosterIdSql();
+            var sql = _messageIdPlusCountPosterIdSql;
             var sqlParams = new { TimeAgo = DateTime.UtcNow.AddDays(-30), ChatId = chat.Id };
             var plus = await _dbConnection.Value.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
             if (!plus.Any())
             {
-                await botClient.SendTextMessageAsync(chat, "Не найдено заплюсованных постов за последнюю неделю");
-                _logger.Information($"{nameof(HandleTopWeekPosts)} - no upvoted posts, skipping");
+                await botClient.SendTextMessageAsync(chat, $"Не найдено заплюсованных постов за {ForLast(period)}");
+                _logger.Information($"{nameof(HandleTopPosts)} - no upvoted posts, skipping");
                 return;
             }
-            sql = GetMessageIdMinusCountSql();
+            sql = _messageIdMinusCountSql;
             var minus = _dbConnection.Value.Query<(long MessageId, long MinusCount)>(sql, sqlParams).ToDictionary(x => x.MessageId, y => y.MinusCount);
 
             var topAuthors = plus.GroupBy(x => x.PosterId).Select(x => new
@@ -175,7 +188,7 @@ namespace RaterBot
                 x.Key,
                 Hindex = x.OrderByDescending(x => x.PlusCount).TakeWhile((z, i) => z.PlusCount >= i + 1).Count(),
                 Likes = x.Sum(x => x.PlusCount)
-            }).OrderByDescending(x => x.Hindex).ThenByDescending(x => x.Likes).Take(10);
+            }).OrderByDescending(x => x.Hindex).ThenByDescending(x => x.Likes).Take(20);
 
             var userIds = topAuthors.Select(x => x.Key).Distinct().ToList();
             var userIdToUser = new Dictionary<long, User>(userIds.Count);
@@ -186,7 +199,9 @@ namespace RaterBot
             }
 
             var message = new StringBuilder(1024);
-            message.Append("Топ авторов за последний месяц:");
+            message.Append("Топ авторов за ");
+            message.Append(ForLast(period));
+            message.Append(':');
             message.Append(Environment.NewLine);
             var i = 0;
             foreach (var item in topAuthors)
@@ -205,7 +220,7 @@ namespace RaterBot
             _ = RemoveAfterSomeTime(chat, m.MessageId);
         }
 
-        private static async Task HandleTopWeekPosts(Update update)
+        private static async Task HandleTopPosts(Update update, Period period)
         {
             Debug.Assert(update.Message != null);
             var chat = update.Message.Chat;
@@ -213,22 +228,22 @@ namespace RaterBot
             if (chat.Type != Telegram.Bot.Types.Enums.ChatType.Supergroup && string.IsNullOrWhiteSpace(chat.Username))
             {
                 await botClient.SendTextMessageAsync(chat, "Этот чат не является супергруппой и не имеет имени: нет возможности оставлять ссылки на посты");
-                _logger.Information($"{nameof(HandleTopWeekPosts)} - unable to link top posts, skipping");
+                _logger.Information($"{nameof(HandleTopPosts)} - unable to link top posts, skipping");
                 return;
             }
 
-            var sql = GetMessageIdPlusCountPosterIdSql();
-            var sqlParams = new { TimeAgo = DateTime.UtcNow.AddDays(-7), ChatId = chat.Id };
+            var sql = _messageIdPlusCountPosterIdSql;
+            var sqlParams = new { TimeAgo = DateTime.UtcNow - PeriodToTimeSpan(period), ChatId = chat.Id };
             var plusQuery = await _dbConnection.Value.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
             var plus = plusQuery.ToDictionary(x => x.MessageId, x => x.PlusCount);
             var messageIdToUserId = plusQuery.ToDictionary(x => x.MessageId, x => x.PosterId);
             if (!plus.Any())
             {
-                await botClient.SendTextMessageAsync(chat, "Не найдено заплюсованных постов за последнюю неделю");
-                _logger.Information($"{nameof(HandleTopWeekPosts)} - no upvoted posts, skipping");
+                await botClient.SendTextMessageAsync(chat, $"Не найдено заплюсованных постов за {ForLast(period)}");
+                _logger.Information($"{nameof(HandleTopPosts)} - no upvoted posts, skipping");
                 return;
             }
-            sql = GetMessageIdMinusCountSql();
+            sql = _messageIdMinusCountSql;
             var minus = (await _dbConnection.Value.QueryAsync<(long MessageId, long MinusCount)>(sql, sqlParams)).ToDictionary(x => x.MessageId, y => y.MinusCount);
 
             var keys = plus.Keys.ToList();
@@ -247,7 +262,9 @@ namespace RaterBot
             }
 
             var message = new StringBuilder(1024);
-            message.Append("Топ постов за последнюю неделю:");
+            message.Append("Топ постов за ");
+            message.Append(ForLast(period));
+            message.Append(':');
             message.Append(Environment.NewLine);
             var i = 0;
             var sg = chat.Type == Telegram.Bot.Types.Enums.ChatType.Supergroup;
@@ -513,5 +530,31 @@ namespace RaterBot
             var runner = serviceProvider.GetRequiredService<IMigrationRunner>();
             runner.MigrateUp();
         }
+
+        private enum Period
+        {
+            Day,
+            Week,
+            Month
+        }
+
+        private static TimeSpan PeriodToTimeSpan(Period period) =>
+            TimeSpan.FromDays(period switch
+            {
+                Period.Day => 1,
+                Period.Week => 7,
+                Period.Month => 30,
+                _ => throw new ArgumentException("Enum out of range", nameof(period))
+            });
+
+        private static string ForLast(Period period) =>
+            period switch
+            {
+                Period.Day => "последний день",
+                Period.Week => "последнюю неделю",
+                Period.Month => "последний месяц",
+                _ => throw new ArgumentException("Enum out of range", nameof(period))
+            };
+
     }
 }
