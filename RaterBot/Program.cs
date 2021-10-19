@@ -139,6 +139,11 @@ namespace RaterBot
                         || (msg.Type == Telegram.Bot.Types.Enums.MessageType.Document
                             && (msg.Document?.MimeType != null && (msg.Document.MimeType.StartsWith("image") || msg.Document.MimeType.StartsWith("video")))))
                     {
+                        if (msg.ReplyToMessage != null)
+                        {
+                            _logger.Information("Reply media messages should be ignored");
+                            return;
+                        }
                         if (!string.IsNullOrWhiteSpace(msg.Caption) && (msg.Caption.Contains("/skip") || msg.Caption.Contains("/ignore") || msg.Caption.Contains("#skip") || msg.Caption.Contains("#ignore")))
                         {
                             _logger.Information("Media message that should be ignored");
