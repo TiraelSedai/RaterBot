@@ -44,11 +44,10 @@ namespace RaterBot
             using var scope = serviceProvider.CreateScope();
             MigrateDatabase(scope.ServiceProvider);
 
-            _dbConnection.Value.Execute("PRAGMA synchronous = OFF;");
-            _dbConnection.Value.Execute("PRAGMA journal_mode = WAL;");
-            _dbConnection.Value.Execute("PRAGMA temp_store = memory;");
-            _dbConnection.Value.Execute("PRAGMA mmap_size = 30000000000;");
-            _dbConnection.Value.Execute("PRAGMA vacuum;");
+            var con = _dbConnection.Value;
+            con.Execute("PRAGMA synchronous = NORMAL;");
+            con.Execute("PRAGMA vacuum;");
+            con.Execute("PRAGMA temp_store = memory;");
         }
 
         static async Task Main()
@@ -69,7 +68,9 @@ namespace RaterBot
                             await HandleUpdate(me, update);
 
                         offset = updates.Max(u => u.Id) + 1;
-                        await _dbConnection.Value.ExecuteAsync("PRAGMA optimize;");
+
+                        if (offset % 50 == 0) // Optimize sometimes
+                            await _dbConnection.Value.ExecuteAsync("PRAGMA optimize;");
                     }
                 }
                 catch (Exception ex)
@@ -92,6 +93,12 @@ namespace RaterBot
                 {
                     var msg = update.Message;
                     Debug.Assert(msg?.Text != null);
+
+                    if (IsBotCommand(me.Username, msg.Text, "/delete"))
+                    {
+                        await HandleDelete(update, me);
+                        return;
+                    }
 
                     if (IsBotCommand(me.Username, msg.Text, "/top_posts_day"))
                     {
@@ -160,13 +167,71 @@ namespace RaterBot
             }
         }
 
-        private static string _messageIdPlusCountPosterIdSql =
+        private static async Task HandleDelete(Update update, User bot)
+        {
+            var msg = update.Message;
+            Debug.Assert(msg != null);
+            if (msg.ReplyToMessage == null)
+            {
+                var m = await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
+                _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
+                _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
+                return;
+            }
+            var sqlParams = new { ChatId = msg.Chat.Id, msg.ReplyToMessage.MessageId };
+
+            Debug.Assert(msg.ReplyToMessage.From != null);
+            if (msg.ReplyToMessage.From.Id != bot.Id)
+            {
+                var m = await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на сообщение бота");
+                _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
+                _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
+                return;
+            }
+
+            var sql = $"SELECT * FROM {nameof(Post)} WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.MessageId)} = @MessageId";
+            var post = await _dbConnection.Value.QueryFirstOrDefaultAsync<Post>(sql, sqlParams);
+            if (post == null)
+            {
+                var m = await botClient.SendTextMessageAsync(msg.Chat, "Это сообщение нельзя удалить");
+                _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
+                _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
+                return;
+            }
+
+            Debug.Assert(msg.From != null);
+            if (post.PosterId != msg.From.Id)
+            {
+                var m = await botClient.SendTextMessageAsync(msg.Chat, "Нельзя удалить чужой пост");
+                _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
+                _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
+                return;
+            }
+
+
+            if (post.Timestamp + TimeSpan.FromHours(1) < DateTime.UtcNow)
+            {
+                var m = await botClient.SendTextMessageAsync(msg.Chat, "Этот пост слишком старый, чтобы его удалять");
+                _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
+                _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
+                return;
+            }
+
+            await botClient.DeleteMessageAsync(msg.Chat, msg.ReplyToMessage.MessageId);
+            await botClient.DeleteMessageAsync(msg.Chat, msg.MessageId);
+            sql = $"DELETE FROM {nameof(Interaction)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
+            await _dbConnection.Value.ExecuteAsync(sql, sqlParams);
+            sql = $"DELETE FROM {nameof(Post)} WHERE {nameof(Post.ChatId)} = @ChatId AND {nameof(Post.MessageId)} = @MessageId;";
+            await _dbConnection.Value.ExecuteAsync(sql, sqlParams);
+        }
+
+        private static readonly string _messageIdPlusCountPosterIdSql =
             $"SELECT {nameof(Interaction)}.{nameof(Interaction.MessageId)}, COUNT(*), {nameof(Interaction)}.{nameof(Interaction.PosterId)}" +
             $" FROM {nameof(Post)} INNER JOIN {nameof(Interaction)} ON {nameof(Post)}.{nameof(MessageId)} = {nameof(Interaction)}.{nameof(Interaction.MessageId)}" +
             $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Interaction)}.{nameof(Interaction.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @TimeAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = true" +
             $" GROUP BY {nameof(Interaction)}.{nameof(Interaction.MessageId)};";
 
-        private static string _messageIdMinusCountSql =
+        private static readonly string _messageIdMinusCountSql =
             $"SELECT {nameof(Interaction)}.{nameof(Interaction.MessageId)}, COUNT(*)" +
             $" FROM {nameof(Post)} INNER JOIN {nameof(Interaction)} ON {nameof(Post)}.{nameof(MessageId)} = {nameof(Interaction)}.{nameof(Interaction.MessageId)}" +
             $" WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Interaction)}.{nameof(Interaction.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.Timestamp)} > @TimeAgo AND {nameof(Interaction)}.{nameof(Interaction.Reaction)} = false" +
@@ -177,7 +242,7 @@ namespace RaterBot
             Debug.Assert(update.Message != null);
             var chat = update.Message.Chat;
             var sql = _messageIdPlusCountPosterIdSql;
-            var sqlParams = new { TimeAgo = DateTime.UtcNow.AddDays(-30), ChatId = chat.Id };
+            var sqlParams = new { TimeAgo = DateTime.UtcNow - PeriodToTimeSpan(period), ChatId = chat.Id };
             var plus = await _dbConnection.Value.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
             if (!plus.Any())
             {
@@ -186,7 +251,7 @@ namespace RaterBot
                 return;
             }
             sql = _messageIdMinusCountSql;
-            var minus = _dbConnection.Value.Query<(long MessageId, long MinusCount)>(sql, sqlParams).ToDictionary(x => x.MessageId, y => y.MinusCount);
+            var minus = (await _dbConnection.Value.QueryAsync<(long MessageId, long MinusCount)>(sql, sqlParams)).ToDictionary(x => x.MessageId, y => y.MinusCount);
 
             var topAuthors = plus.GroupBy(x => x.PosterId).Select(x => new
             {
@@ -345,7 +410,7 @@ namespace RaterBot
             }
 
             _logger.Debug("Valid callback request");
-            var sql = $"SELECT * FROM {nameof(Post)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
+            var sql = $"SELECT * FROM {nameof(Post)} WHERE {nameof(Post.ChatId)} = @ChatId AND {nameof(Post.MessageId)} = @MessageId;";
             var post = await connection.QuerySingleOrDefaultAsync<Post>(sql, new { ChatId = msg.Chat.Id, msg.MessageId });
             if (post == null)
             {
