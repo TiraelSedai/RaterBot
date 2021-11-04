@@ -544,7 +544,7 @@ namespace RaterBot
             }
         }
 
-        private static readonly HashSet<char> _shouldBeEscaped = new() { '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!' };
+        private static readonly HashSet<char> _shouldBeEscaped = new() { '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!' };
 
         private static string MentionUsername(User user)
         {
