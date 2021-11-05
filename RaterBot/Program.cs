@@ -208,7 +208,6 @@ namespace RaterBot
                 return;
             }
 
-
             if (post.Timestamp + TimeSpan.FromHours(1) < DateTime.UtcNow)
             {
                 var m = await botClient.SendTextMessageAsync(msg.Chat, "Этот пост слишком старый, чтобы его удалять");
@@ -260,13 +259,8 @@ namespace RaterBot
                 Likes = x.Sum(x => x.PlusCount)
             }).OrderByDescending(x => x.Hindex).ThenByDescending(x => x.Likes).Take(20);
 
-            var userIds = topAuthors.Select(x => x.Key).Distinct().ToList();
-            var userIdToUser = new Dictionary<long, User>(userIds.Count);
-            foreach (var id in userIds)
-            {
-                var member = await botClient.GetChatMemberAsync(chat, id);
-                userIdToUser.Add(id, member.User);
-            }
+            var userIds = topAuthors.Select(x => x.Key).Distinct();
+            var userIdToUser = await GetTelegramUsers(chat, userIds);
 
             var message = new StringBuilder(1024);
             message.Append("Топ авторов за ");
@@ -278,8 +272,11 @@ namespace RaterBot
             {
                 AppendPlace(message, i);
 
-                var user = userIdToUser[item.Key];
-                message.Append(GetFirstLastName(user));
+                var knownUser = userIdToUser.TryGetValue(item.Key, out var user);
+                if (knownUser)
+                    message.Append(GetFirstLastName(user!));
+                else
+                    message.Append("покинувший чат пользователь");
                 message.Append($" очков: {item.Hindex}, апвоутов: {item.Likes}");
 
                 i++;
@@ -323,13 +320,8 @@ namespace RaterBot
 
             var topTenWithUsers = topPosts.Select(x => x.Key).ToDictionary(x => x, x => new User());
 
-            var userIds = topPosts.Select(x => messageIdToUserId[x.Key]).Distinct().ToList();
-            var userIdToUser = new Dictionary<long, User>(userIds.Count);
-            foreach (var id in userIds)
-            {
-                var member = await botClient.GetChatMemberAsync(chat, id);
-                userIdToUser.Add(id, member.User);
-            }
+            var userIds = topPosts.Select(x => messageIdToUserId[x.Key]).Distinct();
+            var userIdToUser = await GetTelegramUsers(chat, userIds);
 
             var message = new StringBuilder(1024);
             message.Append("Топ постов за ");
@@ -341,11 +333,13 @@ namespace RaterBot
             foreach (var item in topPosts)
             {
                 AppendPlace(message, i);
-
-                var user = userIdToUser[messageIdToUserId[item.Key]];
+                var knownUser = userIdToUser.TryGetValue(item.Key, out var user);
 
                 message.Append("От ");
-                message.Append($"[{UserEscaped(user)}](");
+                if (knownUser)
+                    message.Append($"[{UserEscaped(user!)}](");
+                else
+                    message.Append("[покинувшего чат пользователя](");
 
                 var link = sg ? LinkToSuperGroupMessage(chat, item.Key) : LinkToGroupWithNameMessage(chat, item.Key);
                 message.Append(link);
@@ -359,6 +353,25 @@ namespace RaterBot
             var m = await botClient.SendTextMessageAsync(chat, message.ToString(), Telegram.Bot.Types.Enums.ParseMode.MarkdownV2);
             _ = RemoveAfterSomeTime(chat, m.MessageId);
             _ = RemoveAfterSomeTime(chat, update.Message.MessageId);
+        }
+
+        private static async Task<Dictionary<long, User>> GetTelegramUsers(Chat chat, IEnumerable<long> userIds)
+        {
+            var userIdToUser = new Dictionary<long, User>();
+            foreach (var id in userIds)
+            {
+                try
+                {
+                    var member = await botClient.GetChatMemberAsync(chat, id);
+                    userIdToUser.Add(id, member.User);
+                }
+                catch (Telegram.Bot.Exceptions.ApiRequestException)
+                {
+                    // User not found for any reason, we don't care.
+                }
+            }
+
+            return userIdToUser;
         }
 
         private static async Task RemoveAfterSomeTime(Chat chat, int messageId)
