@@ -333,7 +333,7 @@ namespace RaterBot
             foreach (var item in topPosts)
             {
                 AppendPlace(message, i);
-                var knownUser = userIdToUser.TryGetValue(item.Key, out var user);
+                var knownUser = userIdToUser.TryGetValue(messageIdToUserId[item.Key], out var user);
 
                 message.Append("От ");
                 if (knownUser)
