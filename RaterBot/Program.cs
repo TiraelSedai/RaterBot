@@ -583,7 +583,7 @@ namespace RaterBot
             if (string.IsNullOrWhiteSpace(user.Username))
             {
                 var who = GetFirstLastName(user);
-                return $"поехавшего {who} без ника в телеге";
+                return $"От поехавшего {who} без ника в телеге";
             }
             return $"От @{user.Username}";
         }
