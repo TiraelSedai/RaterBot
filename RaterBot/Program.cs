@@ -7,6 +7,7 @@ using Serilog;
 using Serilog.Core;
 using System.Diagnostics;
 using System.Text;
+using System.Text.RegularExpressions;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
@@ -593,7 +594,10 @@ namespace RaterBot
             var first = user.FirstName ?? string.Empty;
             var last = user.LastName ?? string.Empty;
             var who = $"{first} {last}".Trim();
-            if (string.IsNullOrWhiteSpace(who))
+            
+            Regex strangeSymbols = new Regex("[^0-9a-zA-Zа-яА-Я\:\+\_&]");
+
+            if (string.IsNullOrWhiteSpace(strangeSymbols.Replace(who, "")))
                 who = "аноним";
             return who;
         }
