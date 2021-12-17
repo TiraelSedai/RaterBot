@@ -590,11 +590,14 @@ namespace RaterBot
 
         private static string GetFirstLastName(User user)
         {
+            const string anon = "анона";
             var first = user.FirstName ?? string.Empty;
             var last = user.LastName ?? string.Empty;
             var who = $"{first} {last}".Trim();
+            if (!who.Where(Char.IsAscii).Any())
+                return anon;
             if (string.IsNullOrWhiteSpace(who))
-                who = "аноним";
+                return anon;
             return who;
         }
 
@@ -638,6 +641,5 @@ namespace RaterBot
                 Period.Month => "последний месяц",
                 _ => throw new ArgumentException("Enum out of range", nameof(period))
             };
-
     }
 }
