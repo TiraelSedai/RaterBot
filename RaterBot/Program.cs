@@ -335,11 +335,11 @@ namespace RaterBot
                 AppendPlace(message, i);
                 var knownUser = userIdToUser.TryGetValue(messageIdToUserId[item.Key], out var user);
 
-                message.Append("От ");
+                message.Append("[От ");
                 if (knownUser)
-                    message.Append($"[{UserEscaped(user!)}](");
+                    message.Append($"{UserEscaped(user!)}](");
                 else
-                    message.Append("[покинувшего чат пользователя](");
+                    message.Append("покинувшего чат пользователя](");
 
                 var link = sg ? LinkToSuperGroupMessage(chat, item.Key) : LinkToGroupWithNameMessage(chat, item.Key);
                 message.Append(link);
@@ -562,7 +562,7 @@ namespace RaterBot
         private static string MentionUsername(User user)
         {
             var whoEscaped = UserEscaped(user);
-            return $"От [{whoEscaped}](tg://user?id={user.Id})";
+            return $"[От {whoEscaped}](tg://user?id={user.Id})";
         }
 
         private static string UserEscaped(User user)
@@ -583,7 +583,7 @@ namespace RaterBot
             if (string.IsNullOrWhiteSpace(user.Username))
             {
                 var who = GetFirstLastName(user);
-                return $"От поехавшего {who} без ника в телеге";
+                return $"От {who} без ника в телеге";
             }
             return $"От @{user.Username}";
         }
