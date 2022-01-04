@@ -566,7 +566,6 @@ namespace RaterBot
             {
                 return $"{text}\n{mention}";
             }
-            var whoEscaped = UserEscaped(user);
             return $"{mention}";
         }
         private static string MentionUsername(User user)
