@@ -16,6 +16,7 @@ namespace RaterBot
     internal sealed class Program
     {
         private static readonly Logger _logger = new LoggerConfiguration().WriteTo.Console().CreateLogger();
+        private static string previousMediaGroupId = string.Empty;
 
         static readonly ITelegramBotClient botClient = new TelegramBotClient(Environment.GetEnvironmentVariable("TELEGRAM_MEDIA_RATER_BOT_API") ?? throw new Exception("TELEGRAM_MEDIA_RATER_BOT_API enviroment variable not set"));
         const int updateLimit = 100;
@@ -156,7 +157,11 @@ namespace RaterBot
                             _logger.Information("Media message that should be ignored");
                             return;
                         }
-                        await HandleMediaMessage(msg);
+
+                        if (!string.IsNullOrEmpty(msg.MediaGroupId))
+                            await HandleMediaGroup(msg);
+                        else
+                            await HandleMediaMessage(msg);
                     }
                 }
             }
@@ -547,7 +552,7 @@ namespace RaterBot
             Debug.Assert(from != null);
             try
             {
-                var newMessage = await botClient.CopyMessageAsync(msg.Chat.Id, msg.Chat.Id, msg.MessageId, replyMarkup: _newPostIkm, caption: GenerateCapton(from, msg.Text), parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2);
+                var newMessage = await botClient.CopyMessageAsync(msg.Chat.Id, msg.Chat.Id, msg.MessageId, replyMarkup: _newPostIkm, caption: GenerateCapton(from, msg.Caption), parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2);
                 await botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
                 await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.Id);
             }
@@ -557,16 +562,36 @@ namespace RaterBot
             }
         }
 
+        private static async Task HandleMediaGroup(Message msg)
+        {
+            Debug.Assert(msg.MediaGroupId != null);
+            if (previousMediaGroupId == msg.MediaGroupId)
+                return;
+            _logger.Information("New valid media group");
+
+            var from = msg.From;
+            Debug.Assert(from != null);
+            try
+            {
+                var newMessage = await botClient.SendTextMessageAsync(msg.Chat, "Оценить всю серию", replyToMessageId: msg.MessageId, replyMarkup: _newPostIkm);
+                await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+                previousMediaGroupId = msg.MediaGroupId;
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "Cannot handle media group");
+            }
+        }
+
+
         private static readonly HashSet<char> _shouldBeEscaped = new() { '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!' };
 
         private static string GenerateCapton(User user, string? text)
         {
-            string mention = MentionUsername(user);
+            var mention = MentionUsername(user);
             if (text != null)
-            {
-                return $"{text}\n{mention}";
-            }
-            return $"{mention}";
+                return $"{mention}:{Environment.NewLine}{Environment.NewLine}{text}";
+            return mention;
         }
         private static string MentionUsername(User user)
         {
