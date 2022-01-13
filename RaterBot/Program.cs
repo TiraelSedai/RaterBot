@@ -547,7 +547,7 @@ namespace RaterBot
             Debug.Assert(from != null);
             try
             {
-                var newMessage = await botClient.CopyMessageAsync(msg.Chat.Id, msg.Chat.Id, msg.MessageId, replyMarkup: _newPostIkm, caption: MentionUsername(from), parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2);
+                var newMessage = await botClient.CopyMessageAsync(msg.Chat.Id, msg.Chat.Id, msg.MessageId, replyMarkup: _newPostIkm, caption: GenerateCapton(from, msg.Text), parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2);
                 await botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
                 await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.Id);
             }
@@ -559,6 +559,15 @@ namespace RaterBot
 
         private static readonly HashSet<char> _shouldBeEscaped = new() { '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!' };
 
+        private static string GenerateCapton(User user, string? text)
+        {
+            string mention = MentionUsername(user);
+            if (text != null)
+            {
+                return $"{text}\n{mention}";
+            }
+            return $"{mention}";
+        }
         private static string MentionUsername(User user)
         {
             var whoEscaped = UserEscaped(user);
