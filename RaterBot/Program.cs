@@ -151,9 +151,8 @@ namespace RaterBot
                         return;
                     }
 
-                        if (msg.Type == Telegram.Bot.Types.Enums.MessageType.Photo || msg.Type == Telegram.Bot.Types.Enums.MessageType.Video
-                            || (msg.Type == Telegram.Bot.Types.Enums.MessageType.Document
-                                && (msg.Document?.MimeType != null && (msg.Document.MimeType.StartsWith("image") || msg.Document.MimeType.StartsWith("video")))))
+                    if (msg.Type is Telegram.Bot.Types.Enums.MessageType.Photo or Telegram.Bot.Types.Enums.MessageType.Video || (msg.Type == Telegram.Bot.Types.Enums.MessageType.Document
+                            && (msg.Document?.MimeType != null && (msg.Document.MimeType.StartsWith("image") || msg.Document.MimeType.StartsWith("video")))))
                     {
                         if (msg.ReplyToMessage != null)
                         {
@@ -551,7 +550,11 @@ namespace RaterBot
                 return;
             }
             await using var stream = File.OpenRead(fileName);
-            var newMessage = await botClient.SendVideoAsync(msg.Chat, new InputOnlineFile(stream), replyMarkup: _newPostIkm);
+            var newMessage = await botClient.SendVideoAsync(
+                msg.Chat, 
+                new InputOnlineFile(stream), 
+                replyMarkup: _newPostIkm,
+                caption: MentionUsername(from));
             File.Delete(fileName);
             try
             {
