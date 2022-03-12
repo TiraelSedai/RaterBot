@@ -9,7 +9,9 @@ using System.Diagnostics;
 using System.Text;
 using Telegram.Bot;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.InputFiles;
 using Telegram.Bot.Types.ReplyMarkups;
+using File = System.IO.File;
 
 namespace RaterBot
 {
@@ -143,9 +145,15 @@ namespace RaterBot
                         return;
                     }
 
-                    if (msg.Type == Telegram.Bot.Types.Enums.MessageType.Photo || msg.Type == Telegram.Bot.Types.Enums.MessageType.Video
-                        || (msg.Type == Telegram.Bot.Types.Enums.MessageType.Document
-                            && (msg.Document?.MimeType != null && (msg.Document.MimeType.StartsWith("image") || msg.Document.MimeType.StartsWith("video")))))
+                    if (IsTikTokLink(msg.Text))
+                    {
+                        await HandleTikTokReplyAsync(update);
+                        return;
+                    }
+
+                        if (msg.Type == Telegram.Bot.Types.Enums.MessageType.Photo || msg.Type == Telegram.Bot.Types.Enums.MessageType.Video
+                            || (msg.Type == Telegram.Bot.Types.Enums.MessageType.Document
+                                && (msg.Document?.MimeType != null && (msg.Document.MimeType.StartsWith("image") || msg.Document.MimeType.StartsWith("video")))))
                     {
                         if (msg.ReplyToMessage != null)
                         {
@@ -170,6 +178,17 @@ namespace RaterBot
                 _logger.Error(ex, "General update exception inside FOREACH loop");
                 await Task.Delay(TimeSpan.FromSeconds(1));
             }
+        }
+
+        private static bool IsTikTokLink(string msgText)
+        {
+            return FindTikTokLink(msgText) != null;
+        }
+
+        private static string? FindTikTokLink(string msgText)
+        {
+            return msgText.Split(" ")
+                .First(token => token.Contains("tiktok.com"));
         }
 
         private static async Task HandleDelete(Update update, User bot)
@@ -513,6 +532,39 @@ namespace RaterBot
             }
         }
 
+        private static async Task HandleTikTokReplyAsync(Update update)
+        {
+            _logger.Information("New tiktok message");
+            var msg = update.Message;
+            Debug.Assert(msg != null);
+            var from = msg.From;
+            Debug.Assert(from != null);
+            var msgText = msg.Text;
+            Debug.Assert(msgText != null);
+            var tiktokLink = FindTikTokLink(msgText);
+            Debug.Assert(tiktokLink != null);
+            var fileName = "/tmp/" + tiktokLink.GetHashCode();
+            var result = $"yt-dlp {tiktokLink} -o {fileName}".Bash();
+            if (result != 0)
+            {
+                _logger.Information("Could not download the video. Check logs.");
+                return;
+            }
+            await using var stream = File.OpenRead(fileName);
+            var newMessage = await botClient.SendVideoAsync(msg.Chat, new InputOnlineFile(stream), replyMarkup: _newPostIkm);
+            File.Delete(fileName);
+            try
+            {
+                await botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
+            }
+            catch (Telegram.Bot.Exceptions.ApiRequestException are)
+            {
+                _logger.Warning(are, "Unable to delete message in HandleTikTokReplyAsync, duplicated update?");
+            }
+
+            await InsertIntoPosts(msg.Chat.Id, @from.Id, newMessage.MessageId);
+        }
+        
         private static async Task HandleTextReplyAsync(Update update)
         {
             _logger.Information("New valid text message");
