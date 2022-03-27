@@ -18,13 +18,18 @@ namespace RaterBot
         private static readonly Logger _logger = new LoggerConfiguration().WriteTo.Console().CreateLogger();
         private static string previousMediaGroupId = string.Empty;
 
-        static readonly ITelegramBotClient botClient = new TelegramBotClient(Environment.GetEnvironmentVariable("TELEGRAM_MEDIA_RATER_BOT_API") ?? throw new Exception("TELEGRAM_MEDIA_RATER_BOT_API enviroment variable not set"));
+        static readonly ITelegramBotClient botClient = new TelegramBotClient(
+            Environment.GetEnvironmentVariable("TELEGRAM_MEDIA_RATER_BOT_API") ??
+            throw new Exception("TELEGRAM_MEDIA_RATER_BOT_API enviroment variable not set"));
+
         const int updateLimit = 100;
         const int timeout = 1800;
-        private const string dbPath = "sqlite.db";
+        private const string dbDir = "db";
+        private readonly static string dbPath = Path.Combine(dbDir, "sqlite.db");
 
-        private static readonly Lazy<SqliteConnection> _dbConnection = new(() => new SqliteConnection(_connectionString));
+        private static readonly SqliteConnection _dbConnection = new(_connectionString);
         private static readonly string _connectionString = new SqliteConnectionStringBuilder { DataSource = dbPath }.ConnectionString;
+
         private static readonly string _migrationConnectionString = new SqliteConnectionStringBuilder
         {
             DataSource = dbPath,
@@ -33,22 +38,23 @@ namespace RaterBot
 
         private static readonly InlineKeyboardMarkup _newPostIkm = new(new InlineKeyboardButton[]
         {
-            new InlineKeyboardButton("👍"){ CallbackData = "+" },
-            new InlineKeyboardButton("👎"){ CallbackData = "-" }
+            new InlineKeyboardButton("👍") { CallbackData = "+" },
+            new InlineKeyboardButton("👎") { CallbackData = "-" }
         });
 
         private static void InitAndMigrateDb()
         {
+            if (!Directory.Exists(dbDir))
+                Directory.CreateDirectory(dbDir);
             SQLitePCL.Batteries.Init();
 
             var serviceProvider = CreateServices();
-            using var scope = serviceProvider.CreateScope();
-            MigrateDatabase(scope.ServiceProvider);
+            using (var scope = serviceProvider.CreateScope())
+                MigrateDatabase(scope.ServiceProvider);
 
-            var con = _dbConnection.Value;
-            con.Execute("PRAGMA synchronous = NORMAL;");
-            con.Execute("PRAGMA vacuum;");
-            con.Execute("PRAGMA temp_store = memory;");
+            _dbConnection.Execute("PRAGMA synchronous = NORMAL;");
+            _dbConnection.Execute("PRAGMA vacuum;");
+            _dbConnection.Execute("PRAGMA temp_store = memory;");
         }
 
         static async Task Main()
@@ -63,16 +69,15 @@ namespace RaterBot
                 try
                 {
                     var updates = await botClient.GetUpdatesAsync(offset, updateLimit, timeout);
-                    if (updates?.Any() == true)
-                    {
-                        foreach (var update in updates)
-                            await HandleUpdate(me, update);
+                    if (!updates.Any())
+                        continue;
+                    foreach (var update in updates)
+                        await HandleUpdate(me, update);
 
-                        offset = updates.Max(u => u.Id) + 1;
+                    offset = updates.Max(u => u.Id) + 1;
 
-                        if (offset % 50 == 0) // Optimize sometimes
-                            await _dbConnection.Value.ExecuteAsync("PRAGMA optimize;");
-                    }
+                    if (offset % 100 == 0) // Optimize sometimes
+                        await _dbConnection.ExecuteAsync("PRAGMA optimize;");
                 }
                 catch (Exception ex)
                 {
@@ -106,6 +111,7 @@ namespace RaterBot
                         await HandleTopPosts(update, Period.Day);
                         return;
                     }
+
                     if (IsBotCommand(me.Username, msg.Text, "/top_posts_week"))
                     {
                         await HandleTopPosts(update, Period.Week);
@@ -117,6 +123,7 @@ namespace RaterBot
                         await HandleTopAuthors(update, Period.Week);
                         return;
                     }
+
                     if (IsBotCommand(me.Username, msg.Text, "/top_authors_month"))
                     {
                         await HandleTopAuthors(update, Period.Month);
@@ -127,32 +134,40 @@ namespace RaterBot
                     {
                         if (msg.ReplyToMessage?.From?.Id == me.Id)
                         {
-                            var m = await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку не от бота");
+                            var m = await botClient.SendTextMessageAsync(msg.Chat,
+                                "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку не от бота");
                             _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
                             _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
                             return;
                         }
+
                         if (string.IsNullOrWhiteSpace(msg.ReplyToMessage?.Text))
                         {
-                            var m = await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
+                            var m = await botClient.SendTextMessageAsync(msg.Chat,
+                                "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
                             _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
                             _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
                             return;
                         }
+
                         await HandleTextReplyAsync(update);
                         return;
                     }
 
                     if (msg.Type == Telegram.Bot.Types.Enums.MessageType.Photo || msg.Type == Telegram.Bot.Types.Enums.MessageType.Video
-                        || (msg.Type == Telegram.Bot.Types.Enums.MessageType.Document
-                            && (msg.Document?.MimeType != null && (msg.Document.MimeType.StartsWith("image") || msg.Document.MimeType.StartsWith("video")))))
+                                                                               || (msg.Type == Telegram.Bot.Types.Enums.MessageType.Document
+                                                                                   && (msg.Document?.MimeType != null &&
+                                                                                       (msg.Document.MimeType.StartsWith("image") ||
+                                                                                        msg.Document.MimeType.StartsWith("video")))))
                     {
                         if (msg.ReplyToMessage != null)
                         {
                             _logger.Information("Reply media messages should be ignored");
                             return;
                         }
-                        if (!string.IsNullOrWhiteSpace(msg.Caption) && (msg.Caption.Contains("/skip") || msg.Caption.Contains("/ignore") || msg.Caption.Contains("#skip") || msg.Caption.Contains("#ignore")))
+
+                        if (!string.IsNullOrWhiteSpace(msg.Caption) && (msg.Caption.Contains("/skip") || msg.Caption.Contains("/ignore") ||
+                                                                        msg.Caption.Contains("#skip") || msg.Caption.Contains("#ignore")))
                         {
                             _logger.Information("Media message that should be ignored");
                             return;
@@ -178,11 +193,13 @@ namespace RaterBot
             Debug.Assert(msg != null);
             if (msg.ReplyToMessage == null)
             {
-                var m = await botClient.SendTextMessageAsync(msg.Chat, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
+                var m = await botClient.SendTextMessageAsync(msg.Chat,
+                    "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
                 _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
                 _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
                 return;
             }
+
             var sqlParams = new { ChatId = msg.Chat.Id, msg.ReplyToMessage.MessageId };
 
             Debug.Assert(msg.ReplyToMessage.From != null);
@@ -194,8 +211,9 @@ namespace RaterBot
                 return;
             }
 
-            var sql = $"SELECT * FROM {nameof(Post)} WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.MessageId)} = @MessageId";
-            var post = await _dbConnection.Value.QueryFirstOrDefaultAsync<Post>(sql, sqlParams);
+            var sql =
+                $"SELECT * FROM {nameof(Post)} WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.MessageId)} = @MessageId";
+            var post = await _dbConnection.QueryFirstOrDefaultAsync<Post>(sql, sqlParams);
             if (post == null)
             {
                 var m = await botClient.SendTextMessageAsync(msg.Chat, "Это сообщение нельзя удалить");
@@ -223,10 +241,11 @@ namespace RaterBot
 
             await botClient.DeleteMessageAsync(msg.Chat, msg.ReplyToMessage.MessageId);
             await botClient.DeleteMessageAsync(msg.Chat, msg.MessageId);
-            sql = $"DELETE FROM {nameof(Interaction)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
-            await _dbConnection.Value.ExecuteAsync(sql, sqlParams);
+            sql =
+                $"DELETE FROM {nameof(Interaction)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
+            await _dbConnection.ExecuteAsync(sql, sqlParams);
             sql = $"DELETE FROM {nameof(Post)} WHERE {nameof(Post.ChatId)} = @ChatId AND {nameof(Post.MessageId)} = @MessageId;";
-            await _dbConnection.Value.ExecuteAsync(sql, sqlParams);
+            await _dbConnection.ExecuteAsync(sql, sqlParams);
         }
 
         private static readonly string _messageIdPlusCountPosterIdSql =
@@ -247,15 +266,17 @@ namespace RaterBot
             var chat = update.Message.Chat;
             var sql = _messageIdPlusCountPosterIdSql;
             var sqlParams = new { TimeAgo = DateTime.UtcNow - PeriodToTimeSpan(period), ChatId = chat.Id };
-            var plus = await _dbConnection.Value.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
+            var plus = await _dbConnection.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
             if (!plus.Any())
             {
                 await botClient.SendTextMessageAsync(chat, $"Не найдено заплюсованных постов за {ForLast(period)}");
                 _logger.Information($"{nameof(HandleTopPosts)} - no upvoted posts, skipping");
                 return;
             }
+
             sql = _messageIdMinusCountSql;
-            var minus = (await _dbConnection.Value.QueryAsync<(long MessageId, long MinusCount)>(sql, sqlParams)).ToDictionary(x => x.MessageId, y => y.MinusCount);
+            var minus = (await _dbConnection.QueryAsync<(long MessageId, long MinusCount)>(sql, sqlParams)).ToDictionary(x => x.MessageId,
+                y => y.MinusCount);
 
             var topAuthors = plus.GroupBy(x => x.PosterId).Select(x => new
             {
@@ -299,14 +320,15 @@ namespace RaterBot
 
             if (chat.Type != Telegram.Bot.Types.Enums.ChatType.Supergroup && string.IsNullOrWhiteSpace(chat.Username))
             {
-                await botClient.SendTextMessageAsync(chat, "Этот чат не является супергруппой и не имеет имени: нет возможности оставлять ссылки на посты");
+                await botClient.SendTextMessageAsync(chat,
+                    "Этот чат не является супергруппой и не имеет имени: нет возможности оставлять ссылки на посты");
                 _logger.Information($"{nameof(HandleTopPosts)} - unable to link top posts, skipping");
                 return;
             }
 
             var sql = _messageIdPlusCountPosterIdSql;
             var sqlParams = new { TimeAgo = DateTime.UtcNow - PeriodToTimeSpan(period), ChatId = chat.Id };
-            var plusQuery = await _dbConnection.Value.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
+            var plusQuery = await _dbConnection.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
             var plus = plusQuery.ToDictionary(x => x.MessageId, x => x.PlusCount);
             var messageIdToUserId = plusQuery.ToDictionary(x => x.MessageId, x => x.PosterId);
             if (!plus.Any())
@@ -315,8 +337,10 @@ namespace RaterBot
                 _logger.Information($"{nameof(HandleTopPosts)} - no upvoted posts, skipping");
                 return;
             }
+
             sql = _messageIdMinusCountSql;
-            var minus = (await _dbConnection.Value.QueryAsync<(long MessageId, long MinusCount)>(sql, sqlParams)).ToDictionary(x => x.MessageId, y => y.MinusCount);
+            var minus = (await _dbConnection.QueryAsync<(long MessageId, long MinusCount)>(sql, sqlParams)).ToDictionary(x => x.MessageId,
+                y => y.MinusCount);
 
             var keys = plus.Keys.ToList();
             foreach (var key in keys)
@@ -418,7 +442,7 @@ namespace RaterBot
             Debug.Assert(update.CallbackQuery != null);
             var msg = update.CallbackQuery.Message;
             Debug.Assert(msg != null);
-            var connection = _dbConnection.Value;
+            var connection = _dbConnection;
             var chatAndMessageIdParams = new { ChatId = msg.Chat.Id, msg.MessageId };
             var updateData = update.CallbackQuery.Data;
             if (updateData != "-" && updateData != "+")
@@ -442,7 +466,9 @@ namespace RaterBot
                     _logger.Warning(e, "Unable to set empty reply markup, trying to delete post");
                     await botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
                 }
-                sql = $"SELECT * FROM {nameof(Interaction)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
+
+                sql =
+                    $"SELECT * FROM {nameof(Interaction)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
                 await connection.QueryAsync<Interaction>(sql, chatAndMessageIdParams);
                 return;
             }
@@ -453,7 +479,8 @@ namespace RaterBot
                 return;
             }
 
-            sql = $"SELECT * FROM {nameof(Interaction)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
+            sql =
+                $"SELECT * FROM {nameof(Interaction)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
             var interactions = (await connection.QueryAsync<Interaction>(sql, chatAndMessageIdParams)).ToList();
             var interaction = interactions.SingleOrDefault(i => i.UserId == update.CallbackQuery.From.Id);
 
@@ -467,14 +494,20 @@ namespace RaterBot
                     _logger.Information("No need to update reaction");
                     return;
                 }
+
                 sql = $"UPDATE {nameof(Interaction)} SET {nameof(Interaction.Reaction)} = @Reaction WHERE {nameof(Interaction.Id)} = @Id;";
                 await connection.ExecuteAsync(sql, new { Reaction = newReaction, interaction.Id });
                 interaction.Reaction = newReaction;
             }
             else
             {
-                sql = $"INSERT INTO {nameof(Interaction)} ({nameof(Interaction.ChatId)}, {nameof(Interaction.UserId)}, {nameof(Interaction.MessageId)}, {nameof(Interaction.Reaction)}, {nameof(Interaction.PosterId)}) VALUES (@ChatId, @UserId, @MessageId, @Reaction, @PosterId);";
-                await connection.ExecuteAsync(sql, new { Reaction = newReaction, ChatId = msg.Chat.Id, UserId = update.CallbackQuery.From.Id, msg.MessageId, post.PosterId });
+                sql =
+                    $"INSERT INTO {nameof(Interaction)} ({nameof(Interaction.ChatId)}, {nameof(Interaction.UserId)}, {nameof(Interaction.MessageId)}, {nameof(Interaction.Reaction)}, {nameof(Interaction.PosterId)}) VALUES (@ChatId, @UserId, @MessageId, @Reaction, @PosterId);";
+                await connection.ExecuteAsync(sql,
+                    new
+                    {
+                        Reaction = newReaction, ChatId = msg.Chat.Id, UserId = update.CallbackQuery.From.Id, msg.MessageId, post.PosterId
+                    });
                 interactions.Add(new Interaction { Reaction = newReaction });
             }
 
@@ -486,9 +519,10 @@ namespace RaterBot
                 _logger.Information("Deleting post. Dislikes = {Dislikes}, Likes = {Likes}", dislikes, likes);
                 await botClient.DeleteMessageAsync(msg.Chat, msg.MessageId);
                 sql = $"DELETE FROM {nameof(Post)} WHERE {nameof(Post.Id)} = @Id;";
-                await _dbConnection.Value.ExecuteAsync(sql, new { post.Id });
-                sql = $"DELETE FROM {nameof(Interaction)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
-                var deletedRows = await _dbConnection.Value.ExecuteAsync(sql, chatAndMessageIdParams);
+                await _dbConnection.ExecuteAsync(sql, new { post.Id });
+                sql =
+                    $"DELETE FROM {nameof(Interaction)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
+                var deletedRows = await _dbConnection.ExecuteAsync(sql, chatAndMessageIdParams);
                 _logger.Debug("Deleted {Count} rows from Interaction", deletedRows);
                 await botClient.AnswerCallbackQueryAsync(update.CallbackQuery.Id, "Твой голос стал решающей каплей, этот пост удалён");
                 return;
@@ -499,8 +533,8 @@ namespace RaterBot
 
             var ikm = new InlineKeyboardMarkup(new InlineKeyboardButton[]
             {
-                new InlineKeyboardButton(plusText){ CallbackData = "+" },
-                new InlineKeyboardButton(minusText){ CallbackData = "-" }
+                new InlineKeyboardButton(plusText) { CallbackData = "+" },
+                new InlineKeyboardButton(minusText) { CallbackData = "-" }
             });
 
             try
@@ -523,7 +557,8 @@ namespace RaterBot
             var from = replyTo.From;
             Debug.Assert(from != null);
 
-            var newMessage = await botClient.SendTextMessageAsync(msg.Chat, $"{AtMentionUsername(from)}:{Environment.NewLine}{replyTo.Text}", replyMarkup: _newPostIkm);
+            var newMessage = await botClient.SendTextMessageAsync(msg.Chat,
+                $"{AtMentionUsername(from)}:{Environment.NewLine}{replyTo.Text}", replyMarkup: _newPostIkm);
             try
             {
                 await botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
@@ -541,8 +576,9 @@ namespace RaterBot
 
         private static async Task InsertIntoPosts(long ChatId, long PosterId, long MessageId)
         {
-            var sql = $"INSERT INTO {nameof(Post)} ({nameof(Post.ChatId)}, {nameof(Post.PosterId)}, {nameof(Post.MessageId)}, {nameof(Post.Timestamp)}) Values (@ChatId, @PosterId, @MessageId, @Timestamp);";
-            await _dbConnection.Value.ExecuteAsync(sql, new { ChatId, PosterId, MessageId, Timestamp = DateTime.UtcNow });
+            var sql =
+                $"INSERT INTO {nameof(Post)} ({nameof(Post.ChatId)}, {nameof(Post.PosterId)}, {nameof(Post.MessageId)}, {nameof(Post.Timestamp)}) Values (@ChatId, @PosterId, @MessageId, @Timestamp);";
+            await _dbConnection.ExecuteAsync(sql, new { ChatId, PosterId, MessageId, Timestamp = DateTime.UtcNow });
         }
 
         private static async Task HandleMediaMessage(Message msg)
@@ -552,7 +588,8 @@ namespace RaterBot
             Debug.Assert(from != null);
             try
             {
-                var newMessage = await botClient.CopyMessageAsync(msg.Chat.Id, msg.Chat.Id, msg.MessageId, replyMarkup: _newPostIkm, caption: MentionUsername(from), parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2);
+                var newMessage = await botClient.CopyMessageAsync(msg.Chat.Id, msg.Chat.Id, msg.MessageId, replyMarkup: _newPostIkm,
+                    caption: MentionUsername(from), parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2);
                 await botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
                 await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.Id);
             }
@@ -573,7 +610,8 @@ namespace RaterBot
             Debug.Assert(from != null);
             try
             {
-                var newMessage = await botClient.SendTextMessageAsync(msg.Chat, "Оценить всю серию", replyToMessageId: msg.MessageId, replyMarkup: _newPostIkm);
+                var newMessage = await botClient.SendTextMessageAsync(msg.Chat, "Оценить всю серию", replyToMessageId: msg.MessageId,
+                    replyMarkup: _newPostIkm);
                 await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
                 previousMediaGroupId = msg.MediaGroupId;
             }
@@ -584,7 +622,8 @@ namespace RaterBot
         }
 
 
-        private static readonly HashSet<char> _shouldBeEscaped = new() { '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!' };
+        private static readonly HashSet<char> _shouldBeEscaped = new()
+            { '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!' };
 
         private static string MentionUsername(User user)
         {
@@ -602,6 +641,7 @@ namespace RaterBot
                     whoEscaped.Append('\\');
                 whoEscaped.Append(c);
             }
+
             return whoEscaped.ToString();
         }
 
@@ -612,6 +652,7 @@ namespace RaterBot
                 var who = GetFirstLastName(user);
                 return $"От {who} без ника в телеге";
             }
+
             return $"От @{user.Username}";
         }
 
@@ -665,6 +706,5 @@ namespace RaterBot
                 Period.Month => "последний месяц",
                 _ => throw new ArgumentException("Enum out of range", nameof(period))
             };
-
     }
 }
