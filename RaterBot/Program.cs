@@ -39,8 +39,7 @@ internal sealed class Program
         "GROUP BY Interaction.MessageId;";
 
     private static readonly Logger _logger = new LoggerConfiguration().WriteTo.Console().CreateLogger();
-    private static string _previousMediaGroupId = string.Empty;
-
+    
     private static readonly ITelegramBotClient _botClient = new TelegramBotClient(
         Environment.GetEnvironmentVariable("TELEGRAM_MEDIA_RATER_BOT_API") ??
         throw new Exception("TELEGRAM_MEDIA_RATER_BOT_API environment variable not set"));
@@ -95,7 +94,12 @@ internal sealed class Program
                 var updates = await _botClient.GetUpdatesAsync(offset, UpdateLimit, Timeout);
                 if (!updates.Any())
                     continue;
-                foreach (var update in updates)
+
+                // Assumtion is that all images/videos from one MediaGroup will come in a single update
+                foreach (var grouping in updates.Where(u => u.Message?.MediaGroupId != null).GroupBy(u => u.Message.MediaGroupId))
+                    _ = HandleMediaGroup(grouping.First().Message!);
+
+                foreach (var update in updates.Where(u => u.Message?.MediaGroupId == null))
                     _ = HandleUpdate(me, update);
 
                 offset = updates.Max(u => u.Id) + 1;
@@ -198,23 +202,22 @@ internal sealed class Program
                         return;
                     }
 
-                    if (!string.IsNullOrWhiteSpace(msg.Caption) && (msg.Caption.Contains("/skip") || msg.Caption.Contains("/ignore") ||
-                                                                    msg.Caption.Contains("#skip") || msg.Caption.Contains("#ignore")))
+                    var caption = msg.Caption?.ToLower();
+                    if (!string.IsNullOrWhiteSpace(caption) && (caption.Contains("/skip") || caption.Contains("/ignore") ||
+                                                                caption.Contains("#skip") || caption.Contains("#ignore")))
                     {
                         _logger.Information("Media message that should be ignored");
                         return;
                     }
 
-                    if (!string.IsNullOrEmpty(msg.MediaGroupId))
-                        await HandleMediaGroup(msg);
-                    else
-                        await HandleMediaMessage(msg);
+                    Debug.Assert(msg.MediaGroupId == null);
+                    await HandleMediaMessage(msg);
                 }
             }
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "General update exception inside FOREACH loop");
+            _logger.Error(ex, $"General update exception inside {nameof(HandleUpdate)}");
             await Task.Delay(TimeSpan.FromSeconds(1));
         }
     }
@@ -697,8 +700,6 @@ internal sealed class Program
     private static async Task HandleMediaGroup(Message msg)
     {
         Debug.Assert(msg.MediaGroupId != null);
-        if (_previousMediaGroupId == msg.MediaGroupId)
-            return;
         _logger.Information("New valid media group");
 
         var from = msg.From;
@@ -708,7 +709,6 @@ internal sealed class Program
             var newMessage = await _botClient.SendTextMessageAsync(msg.Chat.Id, "Оценить всю серию", replyToMessageId: msg.MessageId,
                 replyMarkup: _newPostIkm);
             await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
-            _previousMediaGroupId = msg.MediaGroupId;
         }
         catch (Exception ex)
         {
