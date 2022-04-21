@@ -39,7 +39,7 @@ internal sealed class Program
         "GROUP BY Interaction.MessageId;";
 
     private static readonly Logger _logger = new LoggerConfiguration().WriteTo.Console().CreateLogger();
-    
+
     private static readonly ITelegramBotClient _botClient = new TelegramBotClient(
         Environment.GetEnvironmentVariable("TELEGRAM_MEDIA_RATER_BOT_API") ??
         throw new Exception("TELEGRAM_MEDIA_RATER_BOT_API environment variable not set"));
@@ -62,7 +62,7 @@ internal sealed class Program
     });
 
     private static readonly HashSet<char> _shouldBeEscaped = new()
-        { '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!' };
+    { '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!' };
 
     private static void InitAndMigrateDb()
     {
@@ -97,7 +97,9 @@ internal sealed class Program
 
                 // Assumtion is that all images/videos from one MediaGroup will come in a single update
                 foreach (var grouping in updates.Where(u => u.Message?.MediaGroupId != null).GroupBy(u => u.Message.MediaGroupId))
-                    _ = HandleMediaGroup(grouping.First().Message!);
+                    // Only first message of the group will have caption, but just to be safe (it's lazy anyway)
+                    if (!grouping.Any(g => ShouldBeSkipped(g.Message.Caption)))
+                        _ = HandleMediaGroup(grouping.First().Message!);
 
                 foreach (var update in updates.Where(u => u.Message?.MediaGroupId == null))
                     _ = HandleUpdate(me, update);
@@ -128,67 +130,68 @@ internal sealed class Program
             if (update.Type == UpdateType.Message)
             {
                 var msg = update.Message;
-                Debug.Assert(msg?.Text != null);
-
-                if (IsBotCommand(me.Username, msg.Text, "/delete"))
+                if (msg!.Text != null)
                 {
-                    await HandleDelete(update, me);
-                    return;
-                }
-
-                if (IsBotCommand(me.Username, msg.Text, "/top_posts_day"))
-                {
-                    await HandleTopPosts(update, Period.Day);
-                    return;
-                }
-
-                if (IsBotCommand(me.Username, msg.Text, "/top_posts_week"))
-                {
-                    await HandleTopPosts(update, Period.Week);
-                    return;
-                }
-
-                if (IsBotCommand(me.Username, msg.Text, "/top_authors_week"))
-                {
-                    await HandleTopAuthors(update, Period.Week);
-                    return;
-                }
-
-                if (IsBotCommand(me.Username, msg.Text, "/top_authors_month"))
-                {
-                    await HandleTopAuthors(update, Period.Month);
-                    return;
-                }
-
-                if (IsBotCommand(me.Username, msg.Text, "/text"))
-                {
-                    if (msg.ReplyToMessage?.From?.Id == me.Id)
+                    if (IsBotCommand(me.Username, msg.Text, "/delete"))
                     {
-                        var m = await _botClient.SendTextMessageAsync(msg.Chat.Id,
-                            "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку не от бота");
-                        _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
-                        _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
+                        await HandleDelete(update, me);
                         return;
                     }
 
-                    if (string.IsNullOrWhiteSpace(msg.ReplyToMessage?.Text))
+                    if (IsBotCommand(me.Username, msg.Text, "/top_posts_day"))
                     {
-                        var m = await _botClient.SendTextMessageAsync(msg.Chat.Id,
-                            "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
-                        _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
-                        _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
+                        await HandleTopPosts(update, Period.Day);
                         return;
                     }
 
-                    await HandleTextReplyAsync(update);
-                    return;
-                }
+                    if (IsBotCommand(me.Username, msg.Text, "/top_posts_week"))
+                    {
+                        await HandleTopPosts(update, Period.Week);
+                        return;
+                    }
 
-                var ttl = FindTikTokLink(msg);
-                if (ttl != null)
-                {
-                    await HandleTikTokAsync(update, ttl);
-                    return;
+                    if (IsBotCommand(me.Username, msg.Text, "/top_authors_week"))
+                    {
+                        await HandleTopAuthors(update, Period.Week);
+                        return;
+                    }
+
+                    if (IsBotCommand(me.Username, msg.Text, "/top_authors_month"))
+                    {
+                        await HandleTopAuthors(update, Period.Month);
+                        return;
+                    }
+
+                    if (IsBotCommand(me.Username, msg.Text, "/text"))
+                    {
+                        if (msg.ReplyToMessage?.From?.Id == me.Id)
+                        {
+                            var m = await _botClient.SendTextMessageAsync(msg.Chat.Id,
+                                "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку не от бота");
+                            _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
+                            _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
+                            return;
+                        }
+
+                        if (string.IsNullOrWhiteSpace(msg.ReplyToMessage?.Text))
+                        {
+                            var m = await _botClient.SendTextMessageAsync(msg.Chat.Id,
+                                "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
+                            _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
+                            _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
+                            return;
+                        }
+
+                        await HandleTextReplyAsync(update);
+                        return;
+                    }
+
+                    var ttl = FindTikTokLink(msg);
+                    if (ttl != null)
+                    {
+                        await HandleTikTokAsync(update, ttl);
+                        return;
+                    }
                 }
 
                 if (msg.Type is MessageType.Photo or MessageType.Video || (msg.Type == MessageType.Document &&
@@ -203,8 +206,7 @@ internal sealed class Program
                     }
 
                     var caption = msg.Caption?.ToLower();
-                    if (!string.IsNullOrWhiteSpace(caption) && (caption.Contains("/skip") || caption.Contains("/ignore") ||
-                                                                caption.Contains("#skip") || caption.Contains("#ignore")))
+                    if (ShouldBeSkipped(caption))
                     {
                         _logger.Information("Media message that should be ignored");
                         return;
@@ -221,6 +223,10 @@ internal sealed class Program
             await Task.Delay(TimeSpan.FromSeconds(1));
         }
     }
+
+    private static bool ShouldBeSkipped(string? caption) =>
+        !string.IsNullOrWhiteSpace(caption) && (caption.Contains("/skip") || caption.Contains("/ignore") ||
+                                                caption.Contains("#skip") || caption.Contains("#ignore"));
 
     private static Uri? FindTikTokLink(Message msg)
     {
@@ -548,7 +554,11 @@ internal sealed class Program
             await connection.ExecuteAsync(sql,
                 new
                 {
-                    Reaction = newReaction, ChatId = msg.Chat.Id, UserId = update.CallbackQuery.From.Id, msg.MessageId, post.PosterId
+                    Reaction = newReaction,
+                    ChatId = msg.Chat.Id,
+                    UserId = update.CallbackQuery.From.Id,
+                    msg.MessageId,
+                    post.PosterId
                 });
             interactions.Add(new Interaction { Reaction = newReaction });
         }
