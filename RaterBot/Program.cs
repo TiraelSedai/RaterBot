@@ -698,8 +698,8 @@ internal sealed class Program
         {
             var newMessage = await _botClient.CopyMessageAsync(msg.Chat.Id, msg.Chat.Id, msg.MessageId, replyMarkup: _newPostIkm,
                 caption: MentionUsername(from), parseMode: ParseMode.MarkdownV2);
-            await _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
             await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.Id);
+            await _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
         }
         catch (Exception ex)
         {
