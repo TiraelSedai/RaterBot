@@ -7,6 +7,7 @@
 
 using LinqToDB.Mapping;
 using System;
+using System.Collections.Generic;
 
 #pragma warning disable 1573, 1591
 #nullable enable
@@ -21,5 +22,13 @@ namespace RaterBot.Database
 		[Column("PosterId"                                                                                   )] public long     PosterId  { get; set; } // integer
 		[Column("MessageId"                                                                                  )] public long     MessageId { get; set; } // integer
 		[Column("Timestamp"                                                                                  )] public DateTime Timestamp { get; set; } // datetime
+
+		#region Associations
+		/// <summary>
+		/// FK_Interaction_0_0 backreference
+		/// </summary>
+		[Association(ThisKey = nameof(Id), OtherKey = nameof(Interaction.PostId))]
+		public IEnumerable<Interaction> Interactions { get; set; } = null!;
+		#endregion
 	}
 }

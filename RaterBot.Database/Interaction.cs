@@ -15,10 +15,17 @@ namespace RaterBot.Database
 	[Table("Interaction")]
 	public class Interaction
 	{
-		[Column("Id"       , IsPrimaryKey = true, IsIdentity = true, SkipOnInsert = true, SkipOnUpdate = true)] public long Id        { get; set; } // integer
-		[Column("ChatId"                                                                                     )] public long ChatId    { get; set; } // integer
-		[Column("MessageId"                                                                                  )] public long MessageId { get; set; } // integer
-		[Column("UserId"                                                                                     )] public long UserId    { get; set; } // integer
-		[Column("Reaction"                                                                                   )] public bool Reaction  { get; set; } // integer
+		[Column("Id"      , IsPrimaryKey = true, IsIdentity = true, SkipOnInsert = true, SkipOnUpdate = true)] public long Id       { get; set; } // integer
+		[Column("UserId"                                                                                    )] public long UserId   { get; set; } // integer
+		[Column("Reaction"                                                                                  )] public bool Reaction { get; set; } // integer
+		[Column("PostId"                                                                                    )] public long PostId   { get; set; } // integer
+
+		#region Associations
+		/// <summary>
+		/// FK_Interaction_0_0
+		/// </summary>
+		[Association(CanBeNull = false, ThisKey = nameof(PostId), OtherKey = nameof(RaterBot.Database.Post.Id))]
+		public Post Post { get; set; } = null!;
+		#endregion
 	}
 }

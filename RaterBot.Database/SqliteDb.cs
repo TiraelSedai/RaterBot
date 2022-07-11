@@ -38,29 +38,29 @@ namespace RaterBot.Database
 
 		partial void InitDataContext();
 
-		public ITable<Interaction>         Interactions          => this.GetTable<Interaction>();
 		public ITable<Post>                Posts                 => this.GetTable<Post>();
+		public ITable<Interaction>         Interactions          => this.GetTable<Interaction>();
 	}
 
 	public static partial class ExtensionMethods
 	{
 		#region Table Extensions
-		public static Interaction? Find(this ITable<Interaction> table, long id)
-		{
-			return table.FirstOrDefault(e => e.Id == id);
-		}
-
-		public static Task<Interaction?> FindAsync(this ITable<Interaction> table, long id, CancellationToken cancellationToken = default)
-		{
-			return table.FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
-		}
-
 		public static Post? Find(this ITable<Post> table, long id)
 		{
 			return table.FirstOrDefault(e => e.Id == id);
 		}
 
 		public static Task<Post?> FindAsync(this ITable<Post> table, long id, CancellationToken cancellationToken = default)
+		{
+			return table.FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
+		}
+
+		public static Interaction? Find(this ITable<Interaction> table, long id)
+		{
+			return table.FirstOrDefault(e => e.Id == id);
+		}
+
+		public static Task<Interaction?> FindAsync(this ITable<Interaction> table, long id, CancellationToken cancellationToken = default)
 		{
 			return table.FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
 		}
