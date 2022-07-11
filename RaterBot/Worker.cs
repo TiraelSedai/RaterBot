@@ -3,11 +3,8 @@ using System.Text;
 using Dapper;
 using FluentMigrator.Runner;
 using Microsoft.Data.Sqlite;
-using Microsoft.Extensions.DependencyInjection;
 using RaterBot.Database;
 using RaterBot.Database.Migrations;
-using Serilog;
-using Serilog.Core;
 using SQLitePCL;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
@@ -19,8 +16,16 @@ using File = System.IO.File;
 
 namespace RaterBot;
 
-internal sealed class Program
+internal sealed class Worker : BackgroundService
 {
+
+    private readonly ILogger<Worker> _logger;
+
+    public Worker(ILogger<Worker> logger)
+    {
+        _logger = logger;
+    }
+
     private const int UpdateLimit = 100;
     private const int Timeout = 1800;
     private const string DbDir = "db";
@@ -37,8 +42,6 @@ internal sealed class Program
         "INNER JOIN Interaction ON Post.MessageId = Interaction.MessageId " +
         "WHERE Post.ChatId = @ChatId AND Interaction.ChatId = @ChatId AND Post.Timestamp > @TimeAgo AND Interaction.Reaction = false " +
         "GROUP BY Interaction.MessageId;";
-
-    private static readonly Logger _logger = new LoggerConfiguration().WriteTo.Console().CreateLogger();
 
     private static readonly ITelegramBotClient _botClient = new TelegramBotClient(
         Environment.GetEnvironmentVariable("TELEGRAM_MEDIA_RATER_BOT_API") ??
@@ -81,17 +84,17 @@ internal sealed class Program
         _dbConnection.Execute("PRAGMA temp_store = memory;");
     }
 
-    private static async Task Main()
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         InitAndMigrateDb();
 
-        var me = await _botClient.GetMeAsync();
+        var me = await _botClient.GetMeAsync(cancellationToken: stoppingToken);
 
         var offset = 0;
-        while (true)
+        while (!stoppingToken.IsCancellationRequested)
             try
             {
-                var updates = await _botClient.GetUpdatesAsync(offset, UpdateLimit, Timeout);
+                var updates = await _botClient.GetUpdatesAsync(offset, UpdateLimit, Timeout, cancellationToken: stoppingToken);
                 if (!updates.Any())
                     continue;
 
@@ -111,12 +114,12 @@ internal sealed class Program
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "General update exception");
-                await Task.Delay(TimeSpan.FromSeconds(1));
+                _logger.LogError(ex, "General update exception");
+                await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
             }
     }
 
-    private static async Task HandleUpdate(User me, Update update)
+    private async Task HandleUpdate(User me, Update update)
     {
         Debug.Assert(me.Username != null);
         try
@@ -201,14 +204,14 @@ internal sealed class Program
                 {
                     if (msg.ReplyToMessage != null)
                     {
-                        _logger.Information("Reply media messages should be ignored");
+                        _logger.LogInformation("Reply media messages should be ignored");
                         return;
                     }
 
                     var caption = msg.Caption?.ToLower();
                     if (ShouldBeSkipped(caption))
                     {
-                        _logger.Information("Media message that should be ignored");
+                        _logger.LogInformation("Media message that should be ignored");
                         return;
                     }
 
@@ -219,7 +222,7 @@ internal sealed class Program
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, $"General update exception inside {nameof(HandleUpdate)}");
+            _logger.LogError(ex, $"General update exception inside {nameof(HandleUpdate)}");
             await Task.Delay(TimeSpan.FromSeconds(1));
         }
     }
@@ -308,7 +311,7 @@ internal sealed class Program
         await _dbConnection.ExecuteAsync(sql, sqlParams);
     }
 
-    private static async Task HandleTopAuthors(Update update, Period period)
+    private async Task HandleTopAuthors(Update update, Period period)
     {
         Debug.Assert(update.Message != null);
         var chat = update.Message.Chat;
@@ -319,7 +322,7 @@ internal sealed class Program
         if (!pluses.Any())
         {
             await _botClient.SendTextMessageAsync(chat.Id, $"Не найдено заплюсованных постов за {ForLast(period)}");
-            _logger.Information($"{nameof(HandleTopPosts)} - no upvoted posts, skipping");
+            _logger.LogInformation($"{nameof(HandleTopPosts)} - no upvoted posts, skipping");
             return;
         }
 
@@ -360,7 +363,7 @@ internal sealed class Program
         _ = RemoveAfterSomeTime(chat, m.MessageId);
     }
 
-    private static async Task HandleTopPosts(Update update, Period period)
+    private async Task HandleTopPosts(Update update, Period period)
     {
         Debug.Assert(update.Message != null);
         var chat = update.Message.Chat;
@@ -369,7 +372,7 @@ internal sealed class Program
         {
             await _botClient.SendTextMessageAsync(chat.Id,
                 "Этот чат не является супергруппой и не имеет имени: нет возможности оставлять ссылки на посты");
-            _logger.Information($"{nameof(HandleTopPosts)} - unable to link top posts, skipping");
+            _logger.LogInformation($"{nameof(HandleTopPosts)} - unable to link top posts, skipping");
             return;
         }
 
@@ -382,7 +385,7 @@ internal sealed class Program
         if (!plus.Any())
         {
             await _botClient.SendTextMessageAsync(chat.Id, $"Не найдено заплюсованных постов за {ForLast(period)}");
-            _logger.Information($"{nameof(HandleTopPosts)} - no upvoted posts, skipping");
+            _logger.LogInformation($"{nameof(HandleTopPosts)} - no upvoted posts, skipping");
             return;
         }
 
@@ -487,7 +490,7 @@ internal sealed class Program
         return $"https://t.me/{chat.Username}/{messageId}";
     }
 
-    private static async Task HandleCallbackData(Update update)
+    private async Task HandleCallbackData(Update update)
     {
         Debug.Assert(update.CallbackQuery != null);
         var msg = update.CallbackQuery.Message;
@@ -497,23 +500,23 @@ internal sealed class Program
         var updateData = update.CallbackQuery.Data;
         if (updateData != "-" && updateData != "+")
         {
-            _logger.Warning("Invalid callback query data: {Data}", updateData);
+            _logger.LogWarning("Invalid callback query data: {Data}", updateData);
             return;
         }
 
-        _logger.Debug("Valid callback request");
+        _logger.LogWarning("Valid callback request");
         var sql = "SELECT * FROM Post WHERE ChatId = @ChatId AND MessageId = @MessageId;";
         var post = await connection.QuerySingleOrDefaultAsync<Post>(sql, chatAndMessageIdParams);
         if (post == null)
         {
-            _logger.Error("Cannot find post in the database, ChatId = {ChatId}, MessageId = {MessageId}", msg.Chat.Id, msg.MessageId);
+            _logger.LogError("Cannot find post in the database, ChatId = {ChatId}, MessageId = {MessageId}", msg.Chat.Id, msg.MessageId);
             try
             {
                 await _botClient.EditMessageReplyMarkupAsync(msg.Chat.Id, msg.MessageId, InlineKeyboardMarkup.Empty());
             }
             catch (ApiRequestException e)
             {
-                _logger.Warning(e, "Unable to set empty reply markup, trying to delete post");
+                _logger.LogWarning(e, "Unable to set empty reply markup, trying to delete post");
                 await _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
             }
 
@@ -539,7 +542,7 @@ internal sealed class Program
             {
                 var reaction = newReaction ? "👍" : "👎";
                 await _botClient.AnswerCallbackQueryAsync(update.CallbackQuery.Id, $"Ты уже поставил {reaction} этому посту");
-                _logger.Information("No need to update reaction");
+                _logger.LogInformation("No need to update reaction");
                 return;
             }
 
@@ -568,13 +571,13 @@ internal sealed class Program
 
         if (DateTime.UtcNow.AddMinutes(-5) > post.Timestamp && dislikes > 2 * likes + 3)
         {
-            _logger.Information("Deleting post. Dislikes = {Dislikes}, Likes = {Likes}", dislikes, likes);
+            _logger.LogInformation("Deleting post. Dislikes = {Dislikes}, Likes = {Likes}", dislikes, likes);
             await _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
             sql = "DELETE FROM Post WHERE Id = @Id;";
             await _dbConnection.ExecuteAsync(sql, new { post.Id });
             sql = "DELETE FROM Interaction WHERE ChatId = @ChatId AND MessageId = @MessageId;";
             var deletedRows = await _dbConnection.ExecuteAsync(sql, chatAndMessageIdParams);
-            _logger.Debug("Deleted {Count} rows from Interaction", deletedRows);
+            _logger.LogDebug("Deleted {Count} rows from Interaction", deletedRows);
             await _botClient.AnswerCallbackQueryAsync(update.CallbackQuery.Id, "Твой голос стал решающей каплей, этот пост удалён");
             return;
         }
@@ -595,13 +598,13 @@ internal sealed class Program
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "EditMessageReplyMarkupAsync");
+            _logger.LogError(ex, "EditMessageReplyMarkupAsync");
         }
     }
 
-    private static async Task HandleTikTokAsync(Update update, Uri tiktokLink)
+    private async Task HandleTikTokAsync(Update update, Uri tiktokLink)
     {
-        _logger.Information("New tiktok message");
+        _logger.LogInformation("New tiktok message");
 
         var msg = update.Message;
         Debug.Assert(msg != null);
@@ -617,7 +620,7 @@ internal sealed class Program
         var ok = YtDlpHelper.Download(tiktokLink, tempFileName);
         if (!ok)
         {
-            _logger.Information("Could not download the video, check logs");
+            _logger.LogInformation("Could not download the video, check logs");
             await _botClient.DeleteMessageAsync(msg.Chat.Id, processingMsg.MessageId);
             return;
         }
@@ -647,7 +650,7 @@ internal sealed class Program
         }
         catch (Exception e)
         {
-            _logger.Warning(e, nameof(HandleTikTokAsync));
+            _logger.LogInformation(e, nameof(HandleTikTokAsync));
         }
         finally
         {
@@ -655,9 +658,9 @@ internal sealed class Program
         }
     }
 
-    private static async Task HandleTextReplyAsync(Update update)
+    private async Task HandleTextReplyAsync(Update update)
     {
-        _logger.Information("New valid text message");
+        _logger.LogInformation("New valid text message");
         var msg = update.Message;
         Debug.Assert(msg != null);
         var replyTo = msg.ReplyToMessage;
@@ -673,7 +676,7 @@ internal sealed class Program
         }
         catch (ApiRequestException are)
         {
-            _logger.Warning(are, "Unable to delete message in HandleTextReplyAsync, duplicated update?");
+            _logger.LogWarning(are, "Unable to delete message in HandleTextReplyAsync, duplicated update?");
         }
 
         if (msg.From?.Id == replyTo.From?.Id)
@@ -689,9 +692,9 @@ internal sealed class Program
             new { ChatId = chatId, PosterId = posterId, MessageId = messageId, Timestamp = DateTime.UtcNow });
     }
 
-    private static async Task HandleMediaMessage(Message msg)
+    private async Task HandleMediaMessage(Message msg)
     {
-        _logger.Information("New valid media message");
+        _logger.LogInformation("New valid media message");
         var from = msg.From;
         Debug.Assert(from != null);
         try
@@ -703,14 +706,14 @@ internal sealed class Program
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "Cannot handle media message");
+            _logger.LogError(ex, "Cannot handle media message");
         }
     }
 
-    private static async Task HandleMediaGroup(Message msg)
+    private async Task HandleMediaGroup(Message msg)
     {
         Debug.Assert(msg.MediaGroupId != null);
-        _logger.Information("New valid media group");
+        _logger.LogInformation("New valid media group");
 
         var from = msg.From;
         Debug.Assert(from != null);
@@ -722,7 +725,7 @@ internal sealed class Program
         }
         catch (Exception ex)
         {
-            _logger.Error(ex, "Cannot handle media group");
+            _logger.LogError(ex, "Cannot handle media group");
         }
     }
 
