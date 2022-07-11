@@ -18,11 +18,12 @@ namespace RaterBot;
 
 internal sealed class Worker : BackgroundService
 {
-
+    private readonly ITelegramBotClient _botClient;
     private readonly ILogger<Worker> _logger;
 
-    public Worker(ILogger<Worker> logger)
+    public Worker(ITelegramBotClient botClient, ILogger<Worker> logger)
     {
+        _botClient = botClient;
         _logger = logger;
     }
 
@@ -31,25 +32,24 @@ internal sealed class Worker : BackgroundService
     private const string DbDir = "db";
 
     private const string MessageIdPlusCountPosterIdSql =
-        "SELECT Interaction.MessageId, COUNT(*), Interaction.PosterId " +
-        "FROM Post INNER JOIN Interaction ON Post.MessageId = Interaction.MessageId " +
-        "WHERE Post.ChatId = @ChatId AND Interaction.ChatId = @ChatId AND Post.Timestamp > @TimeAgo AND Interaction.Reaction = true " +
-        "GROUP BY Interaction.MessageId;";
+        "SELECT Interaction.MessageId, COUNT(*), Interaction.PosterId "
+        + "FROM Post INNER JOIN Interaction ON Post.MessageId = Interaction.MessageId "
+        + "WHERE Post.ChatId = @ChatId AND Interaction.ChatId = @ChatId AND Post.Timestamp > @TimeAgo AND Interaction.Reaction = true "
+        + "GROUP BY Interaction.MessageId;";
 
     private const string MessageIdMinusCountSql =
-        "SELECT Interaction.MessageId, COUNT(*) " +
-        "FROM Post " +
-        "INNER JOIN Interaction ON Post.MessageId = Interaction.MessageId " +
-        "WHERE Post.ChatId = @ChatId AND Interaction.ChatId = @ChatId AND Post.Timestamp > @TimeAgo AND Interaction.Reaction = false " +
-        "GROUP BY Interaction.MessageId;";
-
-    private static readonly ITelegramBotClient _botClient = new TelegramBotClient(
-        Environment.GetEnvironmentVariable("TELEGRAM_MEDIA_RATER_BOT_API") ??
-        throw new Exception("TELEGRAM_MEDIA_RATER_BOT_API environment variable not set"));
+        "SELECT Interaction.MessageId, COUNT(*) "
+        + "FROM Post "
+        + "INNER JOIN Interaction ON Post.MessageId = Interaction.MessageId "
+        + "WHERE Post.ChatId = @ChatId AND Interaction.ChatId = @ChatId AND Post.Timestamp > @TimeAgo AND Interaction.Reaction = false "
+        + "GROUP BY Interaction.MessageId;";
 
     private static readonly string _dbPath = Path.Combine(DbDir, "sqlite.db");
 
-    private static readonly string _connectionString = new SqliteConnectionStringBuilder { DataSource = _dbPath }.ConnectionString;
+    private static readonly string _connectionString = new SqliteConnectionStringBuilder
+    {
+        DataSource = _dbPath
+    }.ConnectionString;
     private static readonly SqliteConnection _dbConnection = new(_connectionString);
 
     private static readonly string _migrationConnectionString = new SqliteConnectionStringBuilder
@@ -58,14 +58,17 @@ internal sealed class Worker : BackgroundService
         Mode = SqliteOpenMode.ReadWriteCreate
     }.ConnectionString;
 
-    private static readonly InlineKeyboardMarkup _newPostIkm = new(new[]
-    {
-        new InlineKeyboardButton("👍") { CallbackData = "+" },
-        new InlineKeyboardButton("👎") { CallbackData = "-" }
-    });
+    private static readonly InlineKeyboardMarkup _newPostIkm =
+        new(
+            new[]
+            {
+                new InlineKeyboardButton("👍") { CallbackData = "+" },
+                new InlineKeyboardButton("👎") { CallbackData = "-" }
+            }
+        );
 
-    private static readonly HashSet<char> _shouldBeEscaped = new()
-    { '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!' };
+    private static readonly HashSet<char> _shouldBeEscaped =
+        new() { '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!' };
 
     private static void InitAndMigrateDb()
     {
@@ -94,12 +97,21 @@ internal sealed class Worker : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
             try
             {
-                var updates = await _botClient.GetUpdatesAsync(offset, UpdateLimit, Timeout, cancellationToken: stoppingToken);
+                var updates = await _botClient.GetUpdatesAsync(
+                    offset,
+                    UpdateLimit,
+                    Timeout,
+                    cancellationToken: stoppingToken
+                );
                 if (!updates.Any())
                     continue;
 
                 // Assumtion is that all images/videos from one MediaGroup will come in a single update
-                foreach (var grouping in updates.Where(u => u.Message?.MediaGroupId != null).GroupBy(u => u.Message.MediaGroupId))
+                foreach (
+                    var grouping in updates
+                        .Where(u => u.Message?.MediaGroupId != null)
+                        .GroupBy(u => u.Message.MediaGroupId)
+                )
                     // Only first message of the group will have caption, but just to be safe (it's lazy anyway)
                     if (!grouping.Any(g => ShouldBeSkipped(g.Message.Caption)))
                         _ = HandleMediaGroup(grouping.First().Message!);
@@ -169,8 +181,10 @@ internal sealed class Worker : BackgroundService
                     {
                         if (msg.ReplyToMessage?.From?.Id == me.Id)
                         {
-                            var m = await _botClient.SendTextMessageAsync(msg.Chat.Id,
-                                "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку не от бота");
+                            var m = await _botClient.SendTextMessageAsync(
+                                msg.Chat.Id,
+                                "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку не от бота"
+                            );
                             _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
                             _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
                             return;
@@ -178,8 +192,10 @@ internal sealed class Worker : BackgroundService
 
                         if (string.IsNullOrWhiteSpace(msg.ReplyToMessage?.Text))
                         {
-                            var m = await _botClient.SendTextMessageAsync(msg.Chat.Id,
-                                "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
+                            var m = await _botClient.SendTextMessageAsync(
+                                msg.Chat.Id,
+                                "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку"
+                            );
                             _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
                             _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
                             return;
@@ -197,10 +213,14 @@ internal sealed class Worker : BackgroundService
                     }
                 }
 
-                if (msg.Type is MessageType.Photo or MessageType.Video || (msg.Type == MessageType.Document &&
-                                                                           msg.Document?.MimeType != null &&
-                                                                           (msg.Document.MimeType.StartsWith("image") ||
-                                                                            msg.Document.MimeType.StartsWith("video"))))
+                if (
+                    msg.Type is MessageType.Photo or MessageType.Video
+                    || (
+                        msg.Type == MessageType.Document
+                        && msg.Document?.MimeType != null
+                        && (msg.Document.MimeType.StartsWith("image") || msg.Document.MimeType.StartsWith("video"))
+                    )
+                )
                 {
                     if (msg.ReplyToMessage != null)
                     {
@@ -228,14 +248,20 @@ internal sealed class Worker : BackgroundService
     }
 
     private static bool ShouldBeSkipped(string? caption) =>
-        !string.IsNullOrWhiteSpace(caption) && (caption.Contains("/skip") || caption.Contains("/ignore") ||
-                                                caption.Contains("#skip") || caption.Contains("#ignore"));
+        !string.IsNullOrWhiteSpace(caption)
+        && (
+            caption.Contains("/skip")
+            || caption.Contains("/ignore")
+            || caption.Contains("#skip")
+            || caption.Contains("#ignore")
+        );
 
     private static Uri? FindTikTokLink(Message msg)
     {
         if (msg.Text is null)
             return null;
-        var entities = msg.Entities?.Where(e => e.Type == MessageEntityType.Url).ToArray() ?? Array.Empty<MessageEntity>();
+        var entities =
+            msg.Entities?.Where(e => e.Type == MessageEntityType.Url).ToArray() ?? Array.Empty<MessageEntity>();
         if (entities.Length == 0)
             return null;
 
@@ -256,8 +282,10 @@ internal sealed class Worker : BackgroundService
         Debug.Assert(msg != null);
         if (msg.ReplyToMessage == null)
         {
-            var m = await _botClient.SendTextMessageAsync(msg.Chat.Id,
-                "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
+            var m = await _botClient.SendTextMessageAsync(
+                msg.Chat.Id,
+                "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку"
+            );
             _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
             _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
             return;
@@ -268,7 +296,10 @@ internal sealed class Worker : BackgroundService
         Debug.Assert(msg.ReplyToMessage.From != null);
         if (msg.ReplyToMessage.From.Id != bot.Id)
         {
-            var m = await _botClient.SendTextMessageAsync(msg.Chat.Id, "Эту команду нужно вызывать реплаем на сообщение бота");
+            var m = await _botClient.SendTextMessageAsync(
+                msg.Chat.Id,
+                "Эту команду нужно вызывать реплаем на сообщение бота"
+            );
             _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
             _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
             return;
@@ -307,7 +338,8 @@ internal sealed class Worker : BackgroundService
         sql =
             $"DELETE FROM {nameof(Interaction)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
         await _dbConnection.ExecuteAsync(sql, sqlParams);
-        sql = $"DELETE FROM {nameof(Post)} WHERE {nameof(Post.ChatId)} = @ChatId AND {nameof(Post.MessageId)} = @MessageId;";
+        sql =
+            $"DELETE FROM {nameof(Post)} WHERE {nameof(Post.ChatId)} = @ChatId AND {nameof(Post.MessageId)} = @MessageId;";
         await _dbConnection.ExecuteAsync(sql, sqlParams);
     }
 
@@ -327,16 +359,28 @@ internal sealed class Worker : BackgroundService
         }
 
         sql = MessageIdMinusCountSql;
-        var minus = (await _dbConnection.QueryAsync<(long MessageId, long MinusCount)>(sql, sqlParams)).ToDictionary(x => x.MessageId,
-            y => y.MinusCount);
+        var minus = (await _dbConnection.QueryAsync<(long MessageId, long MinusCount)>(sql, sqlParams)).ToDictionary(
+            x => x.MessageId,
+            y => y.MinusCount
+        );
 
-        var topAuthors = pluses.GroupBy(x => x.PosterId).Select(x => new
-        {
-            x.Key,
-            Hindex = x.OrderByDescending(i => i.PlusCount - minus.GetValueOrDefault(i.MessageId)).TakeWhile((z, i) => z.PlusCount >= i + 1)
-                .Count(),
-            Likes = x.Sum(p => p.PlusCount)
-        }).OrderByDescending(x => x.Hindex).ThenByDescending(x => x.Likes).Take(20).ToList();
+        var topAuthors = pluses
+            .GroupBy(x => x.PosterId)
+            .Select(
+                x =>
+                    new
+                    {
+                        x.Key,
+                        Hindex = x.OrderByDescending(i => i.PlusCount - minus.GetValueOrDefault(i.MessageId))
+                            .TakeWhile((z, i) => z.PlusCount >= i + 1)
+                            .Count(),
+                        Likes = x.Sum(p => p.PlusCount)
+                    }
+            )
+            .OrderByDescending(x => x.Hindex)
+            .ThenByDescending(x => x.Likes)
+            .Take(20)
+            .ToList();
 
         var userIds = topAuthors.Select(x => x.Key).Distinct();
         var userIdToUser = await GetTelegramUsers(chat, userIds);
@@ -370,8 +414,10 @@ internal sealed class Worker : BackgroundService
 
         if (chat.Type != ChatType.Supergroup && string.IsNullOrWhiteSpace(chat.Username))
         {
-            await _botClient.SendTextMessageAsync(chat.Id,
-                "Этот чат не является супергруппой и не имеет имени: нет возможности оставлять ссылки на посты");
+            await _botClient.SendTextMessageAsync(
+                chat.Id,
+                "Этот чат не является супергруппой и не имеет имени: нет возможности оставлять ссылки на посты"
+            );
             _logger.LogInformation($"{nameof(HandleTopPosts)} - unable to link top posts, skipping");
             return;
         }
@@ -390,8 +436,10 @@ internal sealed class Worker : BackgroundService
         }
 
         sql = MessageIdMinusCountSql;
-        var minus = (await _dbConnection.QueryAsync<(long MessageId, long MinusCount)>(sql, sqlParams)).ToDictionary(x => x.MessageId,
-            y => y.MinusCount);
+        var minus = (await _dbConnection.QueryAsync<(long MessageId, long MinusCount)>(sql, sqlParams)).ToDictionary(
+            x => x.MessageId,
+            y => y.MinusCount
+        );
 
         var keys = plus.Keys.ToList();
         foreach (var key in keys)
@@ -509,7 +557,11 @@ internal sealed class Worker : BackgroundService
         var post = await connection.QuerySingleOrDefaultAsync<Post>(sql, chatAndMessageIdParams);
         if (post == null)
         {
-            _logger.LogError("Cannot find post in the database, ChatId = {ChatId}, MessageId = {MessageId}", msg.Chat.Id, msg.MessageId);
+            _logger.LogError(
+                "Cannot find post in the database, ChatId = {ChatId}, MessageId = {MessageId}",
+                msg.Chat.Id,
+                msg.MessageId
+            );
             try
             {
                 await _botClient.EditMessageReplyMarkupAsync(msg.Chat.Id, msg.MessageId, InlineKeyboardMarkup.Empty());
@@ -541,7 +593,10 @@ internal sealed class Worker : BackgroundService
             if (newReaction == interaction.Reaction)
             {
                 var reaction = newReaction ? "👍" : "👎";
-                await _botClient.AnswerCallbackQueryAsync(update.CallbackQuery.Id, $"Ты уже поставил {reaction} этому посту");
+                await _botClient.AnswerCallbackQueryAsync(
+                    update.CallbackQuery.Id,
+                    $"Ты уже поставил {reaction} этому посту"
+                );
                 _logger.LogInformation("No need to update reaction");
                 return;
             }
@@ -554,7 +609,8 @@ internal sealed class Worker : BackgroundService
         {
             sql =
                 "INSERT INTO Interaction (ChatId, UserId, MessageId, Reaction, PosterId) VALUES (@ChatId, @UserId, @MessageId, @Reaction, @PosterId);";
-            await connection.ExecuteAsync(sql,
+            await connection.ExecuteAsync(
+                sql,
                 new
                 {
                     Reaction = newReaction,
@@ -562,7 +618,8 @@ internal sealed class Worker : BackgroundService
                     UserId = update.CallbackQuery.From.Id,
                     msg.MessageId,
                     post.PosterId
-                });
+                }
+            );
             interactions.Add(new Interaction { Reaction = newReaction });
         }
 
@@ -578,18 +635,23 @@ internal sealed class Worker : BackgroundService
             sql = "DELETE FROM Interaction WHERE ChatId = @ChatId AND MessageId = @MessageId;";
             var deletedRows = await _dbConnection.ExecuteAsync(sql, chatAndMessageIdParams);
             _logger.LogDebug("Deleted {Count} rows from Interaction", deletedRows);
-            await _botClient.AnswerCallbackQueryAsync(update.CallbackQuery.Id, "Твой голос стал решающей каплей, этот пост удалён");
+            await _botClient.AnswerCallbackQueryAsync(
+                update.CallbackQuery.Id,
+                "Твой голос стал решающей каплей, этот пост удалён"
+            );
             return;
         }
 
         var plusText = likes > 0 ? $"{likes} 👍" : "👍";
         var minusText = dislikes > 0 ? $"{dislikes} 👎" : "👎";
 
-        var ikm = new InlineKeyboardMarkup(new[]
-        {
-            new(plusText) { CallbackData = "+" },
-            new InlineKeyboardButton(minusText) { CallbackData = "-" }
-        });
+        var ikm = new InlineKeyboardMarkup(
+            new[]
+            {
+                new(plusText) { CallbackData = "+" },
+                new InlineKeyboardButton(minusText) { CallbackData = "-" }
+            }
+        );
 
         try
         {
@@ -614,7 +676,11 @@ internal sealed class Worker : BackgroundService
         Debug.Assert(msgText != null);
         Debug.Assert(tiktokLink != null);
 
-        var processingMsg = await _botClient.SendTextMessageAsync(msg.Chat.Id, "Processing...", replyToMessageId: msg.MessageId);
+        var processingMsg = await _botClient.SendTextMessageAsync(
+            msg.Chat.Id,
+            "Processing...",
+            replyToMessageId: msg.MessageId
+        );
 
         var tempFileName = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.mp4");
         var ok = YtDlpHelper.Download(tiktokLink, tempFileName);
@@ -633,7 +699,9 @@ internal sealed class Worker : BackgroundService
                     msg.Chat.Id,
                     new InputOnlineFile(stream),
                     replyMarkup: _newPostIkm,
-                    caption: MentionUsername(from), parseMode: ParseMode.MarkdownV2);
+                    caption: MentionUsername(from),
+                    parseMode: ParseMode.MarkdownV2
+                );
                 await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
             }
 
@@ -668,8 +736,11 @@ internal sealed class Worker : BackgroundService
         var from = replyTo.From;
         Debug.Assert(from != null);
 
-        var newMessage = await _botClient.SendTextMessageAsync(msg.Chat.Id,
-            $"{AtMentionUsername(from)}:{Environment.NewLine}{replyTo.Text}", replyMarkup: _newPostIkm);
+        var newMessage = await _botClient.SendTextMessageAsync(
+            msg.Chat.Id,
+            $"{AtMentionUsername(from)}:{Environment.NewLine}{replyTo.Text}",
+            replyMarkup: _newPostIkm
+        );
         try
         {
             await _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
@@ -687,9 +758,12 @@ internal sealed class Worker : BackgroundService
 
     private static async Task InsertIntoPosts(long chatId, long posterId, long messageId)
     {
-        const string sql = "INSERT INTO Post (ChatId, PosterId, MessageId, Timestamp) Values (@ChatId, @PosterId, @MessageId, @Timestamp);";
-        await _dbConnection.ExecuteAsync(sql,
-            new { ChatId = chatId, PosterId = posterId, MessageId = messageId, Timestamp = DateTime.UtcNow });
+        const string sql =
+            "INSERT INTO Post (ChatId, PosterId, MessageId, Timestamp) Values (@ChatId, @PosterId, @MessageId, @Timestamp);";
+        await _dbConnection.ExecuteAsync(
+            sql,
+            new { ChatId = chatId, PosterId = posterId, MessageId = messageId, Timestamp = DateTime.UtcNow }
+        );
     }
 
     private async Task HandleMediaMessage(Message msg)
@@ -699,8 +773,14 @@ internal sealed class Worker : BackgroundService
         Debug.Assert(from != null);
         try
         {
-            var newMessage = await _botClient.CopyMessageAsync(msg.Chat.Id, msg.Chat.Id, msg.MessageId, replyMarkup: _newPostIkm,
-                caption: MentionUsername(from), parseMode: ParseMode.MarkdownV2);
+            var newMessage = await _botClient.CopyMessageAsync(
+                msg.Chat.Id,
+                msg.Chat.Id,
+                msg.MessageId,
+                replyMarkup: _newPostIkm,
+                caption: MentionUsername(from),
+                parseMode: ParseMode.MarkdownV2
+            );
             await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.Id);
             await _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
         }
@@ -719,8 +799,12 @@ internal sealed class Worker : BackgroundService
         Debug.Assert(from != null);
         try
         {
-            var newMessage = await _botClient.SendTextMessageAsync(msg.Chat.Id, "Оценить всю серию", replyToMessageId: msg.MessageId,
-                replyMarkup: _newPostIkm);
+            var newMessage = await _botClient.SendTextMessageAsync(
+                msg.Chat.Id,
+                "Оценить всю серию",
+                replyToMessageId: msg.MessageId,
+                replyMarkup: _newPostIkm
+            );
             await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
         }
         catch (Exception ex)
@@ -773,10 +857,13 @@ internal sealed class Worker : BackgroundService
     {
         return new ServiceCollection()
             .AddFluentMigratorCore()
-            .ConfigureRunner(rb => rb
-                .AddSQLite()
-                .WithGlobalConnectionString(_migrationConnectionString)
-                .ScanIn(typeof(Init).Assembly).For.Migrations())
+            .ConfigureRunner(
+                rb =>
+                    rb.AddSQLite()
+                        .WithGlobalConnectionString(_migrationConnectionString)
+                        .ScanIn(typeof(Init).Assembly)
+                        .For.Migrations()
+            )
             .AddLogging(lb => lb.AddFluentMigratorConsole())
             .BuildServiceProvider(false);
     }
@@ -789,13 +876,15 @@ internal sealed class Worker : BackgroundService
 
     private static TimeSpan PeriodToTimeSpan(Period period)
     {
-        return TimeSpan.FromDays(period switch
-        {
-            Period.Day => 1,
-            Period.Week => 7,
-            Period.Month => 30,
-            _ => throw new ArgumentException("Enum out of range", nameof(period))
-        });
+        return TimeSpan.FromDays(
+            period switch
+            {
+                Period.Day => 1,
+                Period.Week => 7,
+                Period.Month => 30,
+                _ => throw new ArgumentException("Enum out of range", nameof(period))
+            }
+        );
     }
 
     private static string ForLast(Period period)
