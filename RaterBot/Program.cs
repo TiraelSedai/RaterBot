@@ -1,5 +1,9 @@
 using FluentMigrator.Runner;
+using LinqToDB.AspNet;
+using LinqToDB.AspNet.Logging;
+using LinqToDB.Configuration;
 using RaterBot;
+using RaterBot.Database;
 using RaterBot.Database.Migrations;
 using Telegram.Bot;
 
@@ -28,6 +32,12 @@ IHost host = Host.CreateDefaultBuilder(args)
                 )
                 .AddLogging(lb => lb.AddFluentMigratorConsole())
                 .BuildServiceProvider(false);
+            services.AddLinqToDBContext<SqliteDb>(
+                (provider, options) =>
+                {
+                    options.UseSQLite(connStr).UseDefaultLogging(provider);
+                }
+            );
         }
     )
     .Build();

@@ -17,19 +17,25 @@ namespace RaterBot;
 internal sealed class Worker : BackgroundService
 {
     private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly SqliteDb _sqliteDb;
     private readonly ITelegramBotClient _botClient;
     private readonly ILogger<Worker> _logger;
 
-    public Worker(IServiceScopeFactory serviceScopeFactory, ITelegramBotClient botClient, ILogger<Worker> logger)
+    public Worker(
+        IServiceScopeFactory serviceScopeFactory,
+        SqliteDb sqliteDb,
+        ITelegramBotClient botClient,
+        ILogger<Worker> logger
+    )
     {
         _serviceScopeFactory = serviceScopeFactory;
+        _sqliteDb = sqliteDb;
         _botClient = botClient;
         _logger = logger;
     }
 
     private const int UpdateLimit = 100;
     private const int Timeout = 1800;
-    private const string DbDir = "db";
 
     private const string MessageIdPlusCountPosterIdSql =
         "SELECT Interaction.MessageId, COUNT(*), Interaction.PosterId "
