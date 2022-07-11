@@ -44,20 +44,7 @@ internal sealed class Worker : BackgroundService
         + "WHERE Post.ChatId = @ChatId AND Interaction.ChatId = @ChatId AND Post.Timestamp > @TimeAgo AND Interaction.Reaction = false "
         + "GROUP BY Interaction.MessageId;";
 
-    private static readonly string _dbPath = Path.Combine(DbDir, "sqlite.db");
-
-    private static readonly string _connectionString = new SqliteConnectionStringBuilder
-    {
-        DataSource = _dbPath
-    }.ConnectionString;
-    private static readonly SqliteConnection _dbConnection = new(_connectionString);
-
-    private static readonly string _migrationConnectionString = new SqliteConnectionStringBuilder
-    {
-        DataSource = _dbPath,
-        Mode = SqliteOpenMode.ReadWriteCreate
-    }.ConnectionString;
-
+    private static readonly SqliteConnection _dbConnection = new("Data Source=db/sqlite.db");
     private static readonly InlineKeyboardMarkup _newPostIkm =
         new(
             new[]

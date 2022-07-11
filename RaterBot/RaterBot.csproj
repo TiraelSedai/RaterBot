@@ -12,8 +12,7 @@
 		<PackageReference Include="Dapper" Version="2.0.123" />
 		<PackageReference Include="FluentMigrator.Runner" Version="3.3.2" />
 		<PackageReference Include="FluentMigrator.Runner.SQLite" Version="3.3.2" />
-		<PackageReference Include="Microsoft.Data.Sqlite.Core" Version="6.0.4" />
-		<PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.0.7" />
+		<PackageReference Include="Microsoft.Data.Sqlite" Version="6.0.6" />
 		<PackageReference Include="Telegram.Bot" Version="18.0.0" />
 	</ItemGroup>
 
