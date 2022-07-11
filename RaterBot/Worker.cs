@@ -3,6 +3,7 @@ using LinqToDB.Data;
 using RaterBot.Database;
 using Telegram.Bot;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 
 namespace RaterBot
 {
@@ -28,7 +29,13 @@ namespace RaterBot
                 try
                 {
                     string? mediaGroupId = null;
-                    var updates = await _botClient.GetUpdatesAsync(offset, 100, 1800, cancellationToken: stoppingToken);
+                    var updates = await _botClient.GetUpdatesAsync(
+                        offset,
+                        100,
+                        1800,
+                        allowedUpdates: new[] { UpdateType.CallbackQuery, UpdateType.Message },
+                        cancellationToken: stoppingToken
+                    );
                     if (!updates.Any())
                     {
                         using var scope = _serviceProvider.CreateScope();
