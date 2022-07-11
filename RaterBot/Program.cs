@@ -49,14 +49,17 @@ using (var scope = host.Services.CreateScope())
     if (!Directory.Exists("db"))
         Directory.CreateDirectory("db");
 
+    using (var dbc = scope.ServiceProvider.GetRequiredService<SqliteDb>())
+    {
+        dbc.Execute("PRAGMA foreign_keys = ON;");
+        dbc.Execute("PRAGMA journal_mode = WAL;");
+        dbc.Execute("PRAGMA synchronous = NORMAL;");
+        dbc.Execute("PRAGMA temp_store = memory;");
+        dbc.Execute("VACUUM;");
+    }
+
     var migrationRunner = scope.ServiceProvider.GetRequiredService<IMigrationRunner>();
     migrationRunner.MigrateUp();
-
-    var dbc = scope.ServiceProvider.GetRequiredService<SqliteDb>();
-    dbc.Execute("PRAGMA journal_mode = WAL;");
-    dbc.Execute("PRAGMA synchronous = NORMAL;");
-    dbc.Execute("PRAGMA temp_store = memory;");
-    dbc.Execute("VACUUM;");
 }
 
 await host.RunAsync();
