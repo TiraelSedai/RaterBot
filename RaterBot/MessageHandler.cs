@@ -2,6 +2,7 @@
 using System.Text;
 using Dapper;
 using FluentMigrator.Runner;
+using LinqToDB.Data;
 using Microsoft.Data.Sqlite;
 using RaterBot.Database;
 using Telegram.Bot;
@@ -10,26 +11,18 @@ using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.InputFiles;
 using Telegram.Bot.Types.ReplyMarkups;
-using File = System.IO.File;
 
 namespace RaterBot;
 
 internal sealed class Worker : BackgroundService
 {
     private readonly IServiceScopeFactory _serviceScopeFactory;
-    private readonly SqliteDb _sqliteDb;
     private readonly ITelegramBotClient _botClient;
     private readonly ILogger<Worker> _logger;
 
-    public Worker(
-        IServiceScopeFactory serviceScopeFactory,
-        SqliteDb sqliteDb,
-        ITelegramBotClient botClient,
-        ILogger<Worker> logger
-    )
+    public Worker(IServiceScopeFactory serviceScopeFactory, ITelegramBotClient botClient, ILogger<Worker> logger)
     {
         _serviceScopeFactory = serviceScopeFactory;
-        _sqliteDb = sqliteDb;
         _botClient = botClient;
         _logger = logger;
     }
@@ -74,10 +67,11 @@ internal sealed class Worker : BackgroundService
         migrationRunner.MigrateUp();
         _logger.LogInformation("Database migration finished");
 
-        _dbConnection.Execute("PRAGMA journal_mode = WAL;");
-        _dbConnection.Execute("PRAGMA synchronous = NORMAL;");
-        _dbConnection.Execute("PRAGMA vacuum;");
-        _dbConnection.Execute("PRAGMA temp_store = memory;");
+        var dbc = scope.ServiceProvider.GetRequiredService<SqliteDb>();
+
+        dbc.Execute("PRAGMA journal_mode = WAL;");
+        dbc.Execute("PRAGMA synchronous = NORMAL;");
+        dbc.Execute("PRAGMA temp_store = memory;");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -686,7 +680,7 @@ internal sealed class Worker : BackgroundService
 
         try
         {
-            await using (var stream = File.Open(tempFileName, FileMode.Open, FileAccess.Read))
+            await using (var stream = System.IO.File.Open(tempFileName, FileMode.Open, FileAccess.Read))
             {
                 var newMessage = await _botClient.SendVideoAsync(
                     msg.Chat.Id,
@@ -702,8 +696,8 @@ internal sealed class Worker : BackgroundService
 
             for (var retries = 3; retries >= 0; retries--)
             {
-                File.Delete(tempFileName);
-                if (File.Exists(tempFileName))
+                System.IO.File.Delete(tempFileName);
+                if (System.IO.File.Exists(tempFileName))
                     await Task.Delay(TimeSpan.FromSeconds(1));
                 else
                     break;
