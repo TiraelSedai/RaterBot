@@ -365,3 +365,5 @@ FodyWeavers.xsd
 # jetbrains
 
 .idea
+
+RaterBot/db/*
