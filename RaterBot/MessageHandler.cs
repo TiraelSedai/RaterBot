@@ -1,7 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Text;
 using Dapper;
-using FluentMigrator.Runner;
 using LinqToDB.Data;
 using Microsoft.Data.Sqlite;
 using RaterBot.Database;
@@ -14,21 +13,18 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace RaterBot;
 
-internal sealed class Worker : BackgroundService
+internal sealed class MessageHandler
 {
-    private readonly IServiceScopeFactory _serviceScopeFactory;
+    private readonly SqliteDb _sqliteDb;
     private readonly ITelegramBotClient _botClient;
-    private readonly ILogger<Worker> _logger;
+    private readonly ILogger<MessageHandler> _logger;
 
-    public Worker(IServiceScopeFactory serviceScopeFactory, ITelegramBotClient botClient, ILogger<Worker> logger)
+    public MessageHandler(ITelegramBotClient botClient, SqliteDb sqliteDb, ILogger<MessageHandler> logger)
     {
-        _serviceScopeFactory = serviceScopeFactory;
+        _sqliteDb = sqliteDb;
         _botClient = botClient;
         _logger = logger;
     }
-
-    private const int UpdateLimit = 100;
-    private const int Timeout = 1800;
 
     private const string MessageIdPlusCountPosterIdSql =
         "SELECT Interaction.MessageId, COUNT(*), Interaction.PosterId "
@@ -56,69 +52,7 @@ internal sealed class Worker : BackgroundService
     private static readonly HashSet<char> _shouldBeEscaped =
         new() { '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!' };
 
-    private void InitAndMigrateDb()
-    {
-        if (!Directory.Exists("db"))
-            Directory.CreateDirectory("db");
-
-        using var scope = _serviceScopeFactory.CreateScope();
-        var migrationRunner = scope.ServiceProvider.GetRequiredService<IMigrationRunner>();
-
-        migrationRunner.MigrateUp();
-        _logger.LogInformation("Database migration finished");
-
-        var dbc = scope.ServiceProvider.GetRequiredService<SqliteDb>();
-
-        dbc.Execute("PRAGMA journal_mode = WAL;");
-        dbc.Execute("PRAGMA synchronous = NORMAL;");
-        dbc.Execute("PRAGMA temp_store = memory;");
-    }
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        InitAndMigrateDb();
-
-        var me = await _botClient.GetMeAsync(cancellationToken: stoppingToken);
-
-        var offset = 0;
-        while (!stoppingToken.IsCancellationRequested)
-            try
-            {
-                var updates = await _botClient.GetUpdatesAsync(
-                    offset,
-                    UpdateLimit,
-                    Timeout,
-                    cancellationToken: stoppingToken
-                );
-                if (!updates.Any())
-                    continue;
-
-                // Assumtion is that all images/videos from one MediaGroup will come in a single update
-                foreach (
-                    var grouping in updates
-                        .Where(u => u.Message?.MediaGroupId != null)
-                        .GroupBy(u => u.Message.MediaGroupId)
-                )
-                    // Only first message of the group will have caption, but just to be safe (it's lazy anyway)
-                    if (!grouping.Any(g => ShouldBeSkipped(g.Message.Caption)))
-                        _ = HandleMediaGroup(grouping.First().Message!);
-
-                foreach (var update in updates.Where(u => u.Message?.MediaGroupId == null))
-                    _ = HandleUpdate(me, update);
-
-                offset = updates.Max(u => u.Id) + 1;
-
-                if (offset % 100 == 0) // Optimize sometimes
-                    await _dbConnection.ExecuteAsync("PRAGMA optimize;");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "General update exception");
-                await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
-            }
-    }
-
-    private async Task HandleUpdate(User me, Update update)
+    public async Task HandleUpdate(User me, Update update)
     {
         Debug.Assert(me.Username != null);
         try
