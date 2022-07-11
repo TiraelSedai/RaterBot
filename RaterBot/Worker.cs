@@ -4,8 +4,6 @@ using Dapper;
 using FluentMigrator.Runner;
 using Microsoft.Data.Sqlite;
 using RaterBot.Database;
-using RaterBot.Database.Migrations;
-using SQLitePCL;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
@@ -18,11 +16,13 @@ namespace RaterBot;
 
 internal sealed class Worker : BackgroundService
 {
+    private readonly IServiceScopeFactory _serviceScopeFactory;
     private readonly ITelegramBotClient _botClient;
     private readonly ILogger<Worker> _logger;
 
-    public Worker(ITelegramBotClient botClient, ILogger<Worker> logger)
+    public Worker(IServiceScopeFactory serviceScopeFactory, ITelegramBotClient botClient, ILogger<Worker> logger)
     {
+        _serviceScopeFactory = serviceScopeFactory;
         _botClient = botClient;
         _logger = logger;
     }
@@ -70,18 +70,18 @@ internal sealed class Worker : BackgroundService
     private static readonly HashSet<char> _shouldBeEscaped =
         new() { '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!' };
 
-    private static void InitAndMigrateDb()
+    private void InitAndMigrateDb()
     {
-        if (!Directory.Exists(DbDir))
-            Directory.CreateDirectory(DbDir);
-        Batteries.Init();
+        if (!Directory.Exists("db"))
+            Directory.CreateDirectory("db");
 
-        var serviceProvider = CreateServices();
-        using (var scope = serviceProvider.CreateScope())
-        {
-            MigrateDatabase(scope.ServiceProvider);
-        }
+        using var scope = _serviceScopeFactory.CreateScope();
+        var migrationRunner = scope.ServiceProvider.GetRequiredService<IMigrationRunner>();
 
+        migrationRunner.MigrateUp();
+        _logger.LogInformation("Database migration finished");
+
+        _dbConnection.Execute("PRAGMA journal_mode = WAL;");
         _dbConnection.Execute("PRAGMA synchronous = NORMAL;");
         _dbConnection.Execute("PRAGMA vacuum;");
         _dbConnection.Execute("PRAGMA temp_store = memory;");
@@ -276,7 +276,7 @@ internal sealed class Worker : BackgroundService
         return null;
     }
 
-    private static async Task HandleDelete(Update update, User bot)
+    private async Task HandleDelete(Update update, User bot)
     {
         var msg = update.Message;
         Debug.Assert(msg != null);
@@ -481,7 +481,7 @@ internal sealed class Worker : BackgroundService
         _ = RemoveAfterSomeTime(chat, update.Message.MessageId);
     }
 
-    private static async Task<Dictionary<long, User>> GetTelegramUsers(Chat chat, IEnumerable<long> userIds)
+    private async Task<Dictionary<long, User>> GetTelegramUsers(Chat chat, IEnumerable<long> userIds)
     {
         var userIdToUser = new Dictionary<long, User>();
         foreach (var id in userIds)
@@ -498,7 +498,7 @@ internal sealed class Worker : BackgroundService
         return userIdToUser;
     }
 
-    private static async Task RemoveAfterSomeTime(Chat chat, int messageId)
+    private async Task RemoveAfterSomeTime(Chat chat, int messageId)
     {
         await Task.Delay(TimeSpan.FromMinutes(10));
         await _botClient.DeleteMessageAsync(chat.Id, messageId);
@@ -851,27 +851,6 @@ internal sealed class Worker : BackgroundService
         if (string.IsNullOrWhiteSpace(who))
             who = "аноним";
         return who;
-    }
-
-    private static IServiceProvider CreateServices()
-    {
-        return new ServiceCollection()
-            .AddFluentMigratorCore()
-            .ConfigureRunner(
-                rb =>
-                    rb.AddSQLite()
-                        .WithGlobalConnectionString(_migrationConnectionString)
-                        .ScanIn(typeof(Init).Assembly)
-                        .For.Migrations()
-            )
-            .AddLogging(lb => lb.AddFluentMigratorConsole())
-            .BuildServiceProvider(false);
-    }
-
-    private static void MigrateDatabase(IServiceProvider serviceProvider)
-    {
-        var runner = serviceProvider.GetRequiredService<IMigrationRunner>();
-        runner.MigrateUp();
     }
 
     private static TimeSpan PeriodToTimeSpan(Period period)
