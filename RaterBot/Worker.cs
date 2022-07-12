@@ -1,5 +1,4 @@
-﻿using Dapper;
-using LinqToDB.Data;
+﻿using LinqToDB.Data;
 using RaterBot.Database;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -47,7 +46,7 @@ namespace RaterBot
 
                     foreach (var update in exceptIgnored)
                     {
-                        if (update.Type == Telegram.Bot.Types.Enums.UpdateType.Message)
+                        if (update.Type == UpdateType.Message)
                         {
                             if (update.Message!.MediaGroupId != null && update.Message!.MediaGroupId == mediaGroupId)
                                 continue;
@@ -73,10 +72,10 @@ namespace RaterBot
 
         private static bool ShouldBeIgnored(Update update)
         {
-            if (update.Type != Telegram.Bot.Types.Enums.UpdateType.Message)
+            if (update.Type != UpdateType.Message)
                 return false;
 
-            var caption = update.Message?.Caption;
+            var caption = update.Message?.Caption?.ToLower();
             return !string.IsNullOrWhiteSpace(caption)
                 && (
                     caption.Contains("/skip")

@@ -1,8 +1,7 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Diagnostics;
 using System.Text;
-using Dapper;
-using LinqToDB.Data;
-using Microsoft.Data.Sqlite;
+using LinqToDB;
 using RaterBot.Database;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
@@ -26,20 +25,6 @@ internal sealed class MessageHandler
         _logger = logger;
     }
 
-    private const string MessageIdPlusCountPosterIdSql =
-        "SELECT Interaction.MessageId, COUNT(*), Interaction.PosterId "
-        + "FROM Post INNER JOIN Interaction ON Post.MessageId = Interaction.MessageId "
-        + "WHERE Post.ChatId = @ChatId AND Interaction.ChatId = @ChatId AND Post.Timestamp > @TimeAgo AND Interaction.Reaction = true "
-        + "GROUP BY Interaction.MessageId;";
-
-    private const string MessageIdMinusCountSql =
-        "SELECT Interaction.MessageId, COUNT(*) "
-        + "FROM Post "
-        + "INNER JOIN Interaction ON Post.MessageId = Interaction.MessageId "
-        + "WHERE Post.ChatId = @ChatId AND Interaction.ChatId = @ChatId AND Post.Timestamp > @TimeAgo AND Interaction.Reaction = false "
-        + "GROUP BY Interaction.MessageId;";
-
-    private static readonly SqliteConnection _dbConnection = new("Data Source=db/sqlite.db");
     private static readonly InlineKeyboardMarkup _newPostIkm =
         new(
             new[]
@@ -102,23 +87,19 @@ internal sealed class MessageHandler
                     {
                         if (msg.ReplyToMessage?.From?.Id == me.Id)
                         {
-                            var m = await _botClient.SendTextMessageAsync(
-                                msg.Chat.Id,
+                            ReplyAndDeleteLater(
+                                msg,
                                 "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку не от бота"
                             );
-                            _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
-                            _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
                             return;
                         }
 
                         if (string.IsNullOrWhiteSpace(msg.ReplyToMessage?.Text))
                         {
-                            var m = await _botClient.SendTextMessageAsync(
-                                msg.Chat.Id,
+                            ReplyAndDeleteLater(
+                                msg,
                                 "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку"
                             );
-                            _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
-                            _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
                             return;
                         }
 
@@ -149,13 +130,6 @@ internal sealed class MessageHandler
                         return;
                     }
 
-                    var caption = msg.Caption?.ToLower();
-                    if (ShouldBeSkipped(caption))
-                    {
-                        _logger.LogInformation("Media message that should be ignored");
-                        return;
-                    }
-
                     Debug.Assert(msg.MediaGroupId == null);
                     await HandleMediaMessage(msg);
                 }
@@ -167,15 +141,6 @@ internal sealed class MessageHandler
             await Task.Delay(TimeSpan.FromSeconds(1));
         }
     }
-
-    private static bool ShouldBeSkipped(string? caption) =>
-        !string.IsNullOrWhiteSpace(caption)
-        && (
-            caption.Contains("/skip")
-            || caption.Contains("/ignore")
-            || caption.Contains("#skip")
-            || caption.Contains("#ignore")
-        );
 
     private static Uri? FindTikTokLink(Message msg)
     {
@@ -203,203 +168,174 @@ internal sealed class MessageHandler
         Debug.Assert(msg != null);
         if (msg.ReplyToMessage == null)
         {
-            var m = await _botClient.SendTextMessageAsync(
-                msg.Chat.Id,
-                "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку"
-            );
-            _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
-            _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
+            ReplyAndDeleteLater(msg, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
             return;
         }
-
-        var sqlParams = new { ChatId = msg.Chat.Id, msg.ReplyToMessage.MessageId };
-
         Debug.Assert(msg.ReplyToMessage.From != null);
         if (msg.ReplyToMessage.From.Id != bot.Id)
         {
-            var m = await _botClient.SendTextMessageAsync(
-                msg.Chat.Id,
-                "Эту команду нужно вызывать реплаем на сообщение бота"
-            );
-            _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
-            _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
+            ReplyAndDeleteLater(msg, "Эту команду нужно вызывать реплаем на сообщение бота");
             return;
         }
-
-        var sql =
-            $"SELECT * FROM {nameof(Post)} WHERE {nameof(Post)}.{nameof(Post.ChatId)} = @ChatId AND {nameof(Post)}.{nameof(Post.MessageId)} = @MessageId";
-        var post = await _dbConnection.QueryFirstOrDefaultAsync<Post>(sql, sqlParams);
+        var post = _sqliteDb.Posts
+            .Where(p => p.ChatId == msg.Chat.Id && p.MessageId == msg.ReplyToMessage.MessageId)
+            .FirstOrDefault();
         if (post == null)
         {
-            var m = await _botClient.SendTextMessageAsync(msg.Chat.Id, "Это сообщение нельзя удалить");
-            _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
-            _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
+            ReplyAndDeleteLater(msg, "Это сообщение нельзя удалить");
             return;
         }
-
         Debug.Assert(msg.From != null);
         if (post.PosterId != msg.From.Id)
         {
-            var m = await _botClient.SendTextMessageAsync(msg.Chat.Id, "Нельзя удалить чужой пост");
-            _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
-            _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
+            ReplyAndDeleteLater(msg, "Нельзя удалить чужой пост");
             return;
         }
-
         if (post.Timestamp + TimeSpan.FromHours(1) < DateTime.UtcNow)
         {
-            var m = await _botClient.SendTextMessageAsync(msg.Chat.Id, "Этот пост слишком старый, чтобы его удалять");
-            _ = RemoveAfterSomeTime(msg.Chat, m.MessageId);
-            _ = RemoveAfterSomeTime(msg.Chat, msg.MessageId);
+            ReplyAndDeleteLater(msg, "Этот пост слишком старый, чтобы его удалять");
             return;
         }
-
         await _botClient.DeleteMessageAsync(msg.Chat.Id, msg.ReplyToMessage.MessageId);
         await _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
-        sql =
-            $"DELETE FROM {nameof(Interaction)} WHERE {nameof(Interaction.ChatId)} = @ChatId AND {nameof(Interaction.MessageId)} = @MessageId;";
-        await _dbConnection.ExecuteAsync(sql, sqlParams);
-        sql =
-            $"DELETE FROM {nameof(Post)} WHERE {nameof(Post.ChatId)} = @ChatId AND {nameof(Post.MessageId)} = @MessageId;";
-        await _dbConnection.ExecuteAsync(sql, sqlParams);
+        _sqliteDb.Interactions.Where(i => i.PostId == post.Id).Delete();
+        _sqliteDb.Posts.Where(p => p.Id == post.Id).Delete();
     }
 
     private async Task HandleTopAuthors(Update update, Period period)
     {
-        Debug.Assert(update.Message != null);
-        var chat = update.Message.Chat;
-        var sql = MessageIdPlusCountPosterIdSql;
-        var sqlParams = new { TimeAgo = DateTime.UtcNow - PeriodToTimeSpan(period), ChatId = chat.Id };
-        var plusQ = await _dbConnection.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
-        var pluses = plusQ.ToList();
-        if (!pluses.Any())
-        {
-            await _botClient.SendTextMessageAsync(chat.Id, $"Не найдено заплюсованных постов за {ForLast(period)}");
-            _logger.LogInformation($"{nameof(HandleTopPosts)} - no upvoted posts, skipping");
-            return;
-        }
+        //Debug.Assert(update.Message != null);
+        //var chat = update.Message.Chat;
+        //var interactions = _sqliteDb.Interactions
+        //    //.Where(x => x.Post.ChatId == chat.Id && x.Post.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
+        //    .Where(
+        //        x => x.Post.ChatId == -1001341205233 && x.Post.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period)
+        //    )
+        //    .LoadWith(x => x.Post)
+        //    .ToList();
 
-        sql = MessageIdMinusCountSql;
-        var minus = (await _dbConnection.QueryAsync<(long MessageId, long MinusCount)>(sql, sqlParams)).ToDictionary(
-            x => x.MessageId,
-            y => y.MinusCount
-        );
+        //if (!interactions.Where(i => i.Reaction).Any())
+        //{
+        //    await _botClient.SendTextMessageAsync(chat.Id, $"Не найдено заплюсованных постов за {ForLast(period)}");
+        //    return;
+        //}
 
-        var topAuthors = pluses
-            .GroupBy(x => x.PosterId)
-            .Select(
-                x =>
-                    new
-                    {
-                        x.Key,
-                        Hindex = x.OrderByDescending(i => i.PlusCount - minus.GetValueOrDefault(i.MessageId))
-                            .TakeWhile((z, i) => z.PlusCount >= i + 1)
-                            .Count(),
-                        Likes = x.Sum(p => p.PlusCount)
-                    }
-            )
-            .OrderByDescending(x => x.Hindex)
-            .ThenByDescending(x => x.Likes)
-            .Take(20)
-            .ToList();
+        //var postLikes = interactions
+        //    .GroupBy(i => i.Post.Id)
+        //    .ToDictionary(x => x.Key, x => x.Sum(y => y.Reaction ? 1 : -1));
 
-        var userIds = topAuthors.Select(x => x.Key).Distinct();
-        var userIdToUser = await GetTelegramUsers(chat, userIds);
+        //var topAuthors = interactions
+        //    .GroupBy(x => x.Post.PosterId)
+        //    .Select(
+        //        g =>
+        //            new
+        //            {
+        //                g.Key,
+        //                HirschIndex = g.OrderByDescending(i => g.Sum(y => y.Reaction ? 1 : -1)),
+        //                Likes = g.Sum(p => p.Reaction ? 1 : -1)
+        //            }
+        //    )
+        //    .ToList();
+        ////.OrderByDescending(x => x.HirschIndex)
+        ////.ThenByDescending(x => x.Likes)
+        ////.Take(20)
+        ////.ToList();
 
-        var message = new StringBuilder(1024);
-        message.Append("Топ авторов за ");
-        message.Append(ForLast(period));
-        message.Append(':');
-        message.Append(Environment.NewLine);
-        var i = 0;
-        foreach (var item in topAuthors)
-        {
-            AppendPlace(message, i);
+        //var userIds = topAuthors.Select(x => x.Key).Distinct();
+        //var userIdToUser = await GetTelegramUsers(chat, userIds);
 
-            var knownUser = userIdToUser.TryGetValue(item.Key, out var user);
-            message.Append(knownUser ? GetFirstLastName(user!) : "покинувший чат пользователь");
-            message.Append($" очков: {item.Hindex}, апвоутов: {item.Likes}");
+        //var message = new StringBuilder(1024);
+        //message.Append("Топ авторов за ");
+        //message.Append(ForLast(period));
+        //message.Append(':');
+        //message.Append(Environment.NewLine);
+        //var i = 0;
+        //foreach (var item in topAuthors)
+        //{
+        //    AppendPlace(message, i);
 
-            i++;
-        }
+        //    var knownUser = userIdToUser.TryGetValue(item.Key, out var user);
+        //    message.Append(knownUser ? GetFirstLastName(user!) : "покинувший чат пользователь");
+        //    message.Append($" очков: {item.HirschIndex}, апвоутов: {item.Likes}");
 
-        var m = await _botClient.SendTextMessageAsync(chat.Id, message.ToString());
-        _ = RemoveAfterSomeTime(chat, update.Message.MessageId);
-        _ = RemoveAfterSomeTime(chat, m.MessageId);
+        //    i++;
+        //}
+
+        //ReplyAndDeleteLater(update.Message, message.ToString());
     }
 
     private async Task HandleTopPosts(Update update, Period period)
     {
-        Debug.Assert(update.Message != null);
-        var chat = update.Message.Chat;
+        //Debug.Assert(update.Message != null);
+        //var chat = update.Message.Chat;
 
-        if (chat.Type != ChatType.Supergroup && string.IsNullOrWhiteSpace(chat.Username))
-        {
-            await _botClient.SendTextMessageAsync(
-                chat.Id,
-                "Этот чат не является супергруппой и не имеет имени: нет возможности оставлять ссылки на посты"
-            );
-            _logger.LogInformation($"{nameof(HandleTopPosts)} - unable to link top posts, skipping");
-            return;
-        }
+        //if (chat.Type != ChatType.Supergroup && string.IsNullOrWhiteSpace(chat.Username))
+        //{
+        //    await _botClient.SendTextMessageAsync(
+        //        chat.Id,
+        //        "Этот чат не является супергруппой и не имеет имени: нет возможности оставлять ссылки на посты"
+        //    );
+        //    _logger.LogInformation($"{nameof(HandleTopPosts)} - unable to link top posts, skipping");
+        //    return;
+        //}
 
-        var sql = MessageIdPlusCountPosterIdSql;
-        var sqlParams = new { TimeAgo = DateTime.UtcNow - PeriodToTimeSpan(period), ChatId = chat.Id };
-        var plusQuery = await _dbConnection.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
-        var plusList = plusQuery.ToList();
-        var plus = plusList.ToDictionary(x => x.MessageId, x => x.PlusCount);
-        var messageIdToUserId = plusList.ToDictionary(x => x.MessageId, x => x.PosterId);
-        if (!plus.Any())
-        {
-            await _botClient.SendTextMessageAsync(chat.Id, $"Не найдено заплюсованных постов за {ForLast(period)}");
-            _logger.LogInformation($"{nameof(HandleTopPosts)} - no upvoted posts, skipping");
-            return;
-        }
+        //var sql = MessageIdPlusCountPosterIdSql;
+        //var sqlParams = new { TimeAgo = DateTime.UtcNow - PeriodToTimeSpan(period), ChatId = chat.Id };
+        //var plusQuery = await _dbConnection.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
+        //var plusList = plusQuery.ToList();
+        //var plus = plusList.ToDictionary(x => x.MessageId, x => x.PlusCount);
+        //var messageIdToUserId = plusList.ToDictionary(x => x.MessageId, x => x.PosterId);
+        //if (!plus.Any())
+        //{
+        //    await _botClient.SendTextMessageAsync(chat.Id, $"Не найдено заплюсованных постов за {ForLast(period)}");
+        //    _logger.LogInformation($"{nameof(HandleTopPosts)} - no upvoted posts, skipping");
+        //    return;
+        //}
 
-        sql = MessageIdMinusCountSql;
-        var minus = (await _dbConnection.QueryAsync<(long MessageId, long MinusCount)>(sql, sqlParams)).ToDictionary(
-            x => x.MessageId,
-            y => y.MinusCount
-        );
+        //sql = MessageIdMinusCountSql;
+        //var minus = (await _dbConnection.QueryAsync<(long MessageId, long MinusCount)>(sql, sqlParams)).ToDictionary(
+        //    x => x.MessageId,
+        //    y => y.MinusCount
+        //);
 
-        var keys = plus.Keys.ToList();
-        foreach (var key in keys)
-            plus[key] -= minus.GetValueOrDefault(key);
-        var topPosts = plus.OrderByDescending(x => x.Value).Take(20).ToList();
+        //var keys = plus.Keys.ToList();
+        //foreach (var key in keys)
+        //    plus[key] -= minus.GetValueOrDefault(key);
+        //var topPosts = plus.OrderByDescending(x => x.Value).Take(20).ToList();
 
-        var userIds = topPosts.Select(x => messageIdToUserId[x.Key]).Distinct();
-        var userIdToUser = await GetTelegramUsers(chat, userIds);
+        //var userIds = topPosts.Select(x => messageIdToUserId[x.Key]).Distinct();
+        //var userIdToUser = await GetTelegramUsers(chat, userIds);
 
-        var message = new StringBuilder(1024);
-        message.Append("Топ постов за ");
-        message.Append(ForLast(period));
-        message.Append(':');
-        message.Append(Environment.NewLine);
-        var i = 0;
-        var sg = chat.Type == ChatType.Supergroup;
-        foreach (var item in topPosts)
-        {
-            AppendPlace(message, i);
-            var knownUser = userIdToUser.TryGetValue(messageIdToUserId[item.Key], out var user);
+        //var message = new StringBuilder(1024);
+        //message.Append("Топ постов за ");
+        //message.Append(ForLast(period));
+        //message.Append(':');
+        //message.Append(Environment.NewLine);
+        //var i = 0;
+        //var sg = chat.Type == ChatType.Supergroup;
+        //foreach (var item in topPosts)
+        //{
+        //    AppendPlace(message, i);
+        //    var knownUser = userIdToUser.TryGetValue(messageIdToUserId[item.Key], out var user);
 
-            message.Append("[От ");
-            if (knownUser)
-                message.Append($"{UserEscaped(user!)}](");
-            else
-                message.Append("покинувшего чат пользователя](");
+        //    message.Append("[От ");
+        //    if (knownUser)
+        //        message.Append($"{UserEscaped(user!)}](");
+        //    else
+        //        message.Append("покинувшего чат пользователя](");
 
-            var link = sg ? LinkToSuperGroupMessage(chat, item.Key) : LinkToGroupWithNameMessage(chat, item.Key);
-            message.Append(link);
-            message.Append(") ");
-            if (item.Value > 0)
-                message.Append("\\+");
-            message.Append(item.Value);
-            i++;
-        }
+        //    var link = sg ? LinkToSuperGroupMessage(chat, item.Key) : LinkToGroupWithNameMessage(chat, item.Key);
+        //    message.Append(link);
+        //    message.Append(") ");
+        //    if (item.Value > 0)
+        //        message.Append("\\+");
+        //    message.Append(item.Value);
+        //    i++;
+        //}
 
-        var m = await _botClient.SendTextMessageAsync(chat.Id, message.ToString(), ParseMode.MarkdownV2);
-        _ = RemoveAfterSomeTime(chat, m.MessageId);
-        _ = RemoveAfterSomeTime(chat, update.Message.MessageId);
+        //var m = await _botClient.SendTextMessageAsync(chat.Id, message.ToString(), ParseMode.MarkdownV2);
+        //_ = RemoveAfterSomeTime(chat, m.MessageId);
+        //_ = RemoveAfterSomeTime(chat, update.Message.MessageId);
     }
 
     private async Task<Dictionary<long, User>> GetTelegramUsers(Chat chat, IEnumerable<long> userIds)
@@ -419,10 +355,15 @@ internal sealed class MessageHandler
         return userIdToUser;
     }
 
-    private async Task RemoveAfterSomeTime(Chat chat, int messageId)
+    private void ReplyAndDeleteLater(Message message, string text)
     {
-        await Task.Delay(TimeSpan.FromMinutes(10));
-        await _botClient.DeleteMessageAsync(chat.Id, messageId);
+        _ = Task.Run(async () =>
+        {
+            var m = await _botClient.SendTextMessageAsync(message.Chat.Id, text, replyToMessageId: message.MessageId);
+            await Task.Delay(TimeSpan.FromMinutes(10));
+            await _botClient.DeleteMessageAsync(message.Chat.Id, m.MessageId);
+            await _botClient.DeleteMessageAsync(message.Chat.Id, message.MessageId);
+        });
     }
 
     private static bool IsBotCommand(string username, string? msgText, string command)
@@ -464,8 +405,7 @@ internal sealed class MessageHandler
         Debug.Assert(update.CallbackQuery != null);
         var msg = update.CallbackQuery.Message;
         Debug.Assert(msg != null);
-        var connection = _dbConnection;
-        var chatAndMessageIdParams = new { ChatId = msg.Chat.Id, msg.MessageId };
+
         var updateData = update.CallbackQuery.Data;
         if (updateData != "-" && updateData != "+")
         {
@@ -474,8 +414,10 @@ internal sealed class MessageHandler
         }
 
         _logger.LogWarning("Valid callback request");
-        var sql = "SELECT * FROM Post WHERE ChatId = @ChatId AND MessageId = @MessageId;";
-        var post = await connection.QuerySingleOrDefaultAsync<Post>(sql, chatAndMessageIdParams);
+        var post = _sqliteDb.Posts
+            .Where(p => p.ChatId == msg.Chat.Id && p.MessageId == msg.MessageId)
+            .LoadWith(p => p.Interactions)
+            .SingleOrDefault();
         if (post == null)
         {
             _logger.LogError(
@@ -492,9 +434,6 @@ internal sealed class MessageHandler
                 _logger.LogWarning(e, "Unable to set empty reply markup, trying to delete post");
                 await _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
             }
-
-            sql = "DELETE FROM Interaction WHERE ChatId = @ChatId AND MessageId = @MessageId;";
-            await connection.QueryAsync<Interaction>(sql, chatAndMessageIdParams);
             return;
         }
 
@@ -504,8 +443,7 @@ internal sealed class MessageHandler
             return;
         }
 
-        sql = "SELECT * FROM Interaction WHERE ChatId = @ChatId AND MessageId = @MessageId;";
-        var interactions = (await connection.QueryAsync<Interaction>(sql, chatAndMessageIdParams)).ToList();
+        var interactions = post.Interactions.ToList();
         var interaction = interactions.SingleOrDefault(i => i.UserId == update.CallbackQuery.From.Id);
 
         var newReaction = updateData == "+";
@@ -521,27 +459,19 @@ internal sealed class MessageHandler
                 _logger.LogInformation("No need to update reaction");
                 return;
             }
-
-            sql = "UPDATE Interaction SET Reaction = @Reaction WHERE Id = @Id;";
-            await connection.ExecuteAsync(sql, new { Reaction = newReaction, interaction.Id });
+            _sqliteDb.Interactions.Where(i => i.Id == interaction.Id).Set(i => i.Reaction, newReaction).Update();
             interaction.Reaction = newReaction;
         }
         else
         {
-            sql =
-                "INSERT INTO Interaction (ChatId, UserId, MessageId, Reaction, PosterId) VALUES (@ChatId, @UserId, @MessageId, @Reaction, @PosterId);";
-            await connection.ExecuteAsync(
-                sql,
-                new
-                {
-                    Reaction = newReaction,
-                    ChatId = msg.Chat.Id,
-                    UserId = update.CallbackQuery.From.Id,
-                    msg.MessageId,
-                    post.PosterId
-                }
-            );
-            interactions.Add(new Interaction { Reaction = newReaction });
+            interaction = new()
+            {
+                Reaction = newReaction,
+                UserId = update.CallbackQuery.From.Id,
+                PostId = post.Id
+            };
+            _sqliteDb.Insert(interaction);
+            interactions.Add(interaction);
         }
 
         var likes = interactions.Count(i => i.Reaction);
@@ -551,11 +481,8 @@ internal sealed class MessageHandler
         {
             _logger.LogInformation("Deleting post. Dislikes = {Dislikes}, Likes = {Likes}", dislikes, likes);
             await _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
-            sql = "DELETE FROM Post WHERE Id = @Id;";
-            await _dbConnection.ExecuteAsync(sql, new { post.Id });
-            sql = "DELETE FROM Interaction WHERE ChatId = @ChatId AND MessageId = @MessageId;";
-            var deletedRows = await _dbConnection.ExecuteAsync(sql, chatAndMessageIdParams);
-            _logger.LogDebug("Deleted {Count} rows from Interaction", deletedRows);
+            _sqliteDb.Interactions.Delete(i => i.PostId == post.Id);
+            _sqliteDb.Posts.Delete(p => p.Id == post.Id);
             await _botClient.AnswerCallbackQueryAsync(
                 update.CallbackQuery.Id,
                 "Твой голос стал решающей каплей, этот пост удалён"
@@ -623,7 +550,7 @@ internal sealed class MessageHandler
                     caption: MentionUsername(from),
                     parseMode: ParseMode.MarkdownV2
                 );
-                await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+                InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
             }
 
             _ = _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
@@ -674,16 +601,19 @@ internal sealed class MessageHandler
         if (msg.From?.Id == replyTo.From?.Id)
             await _botClient.DeleteMessageAsync(msg.Chat.Id, replyTo.MessageId);
 
-        await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+        InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
     }
 
-    private static async Task InsertIntoPosts(long chatId, long posterId, long messageId)
+    private void InsertIntoPosts(long chatId, long posterId, long messageId)
     {
-        const string sql =
-            "INSERT INTO Post (ChatId, PosterId, MessageId, Timestamp) Values (@ChatId, @PosterId, @MessageId, @Timestamp);";
-        await _dbConnection.ExecuteAsync(
-            sql,
-            new { ChatId = chatId, PosterId = posterId, MessageId = messageId, Timestamp = DateTime.UtcNow }
+        _sqliteDb.Insert(
+            new Post
+            {
+                ChatId = chatId,
+                PosterId = posterId,
+                MessageId = messageId,
+                Timestamp = DateTime.UtcNow
+            }
         );
     }
 
@@ -702,7 +632,7 @@ internal sealed class MessageHandler
                 caption: MentionUsername(from),
                 parseMode: ParseMode.MarkdownV2
             );
-            await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.Id);
+            InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.Id);
             await _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
         }
         catch (Exception ex)
@@ -726,7 +656,7 @@ internal sealed class MessageHandler
                 replyToMessageId: msg.MessageId,
                 replyMarkup: _newPostIkm
             );
-            await InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+            InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
         }
         catch (Exception ex)
         {
