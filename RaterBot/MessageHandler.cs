@@ -254,7 +254,7 @@ internal sealed class MessageHandler
         var userIdToUser = await GetTelegramUsers(chat, userIds);
 
         var message = new StringBuilder(1024);
-        message.Append("Топ постов за ");
+        message.Append("Топ противоречивых постов за ");
         message.Append(ForLast(period));
         message.Append(':');
         message.Append(Environment.NewLine);
