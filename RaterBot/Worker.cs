@@ -70,17 +70,19 @@ namespace RaterBot
                         dbc.Execute("PRAGMA optimize;");
                         continue;
                     }
-                    var exceptIgnored = updates.Where(x => !ShouldBeIgnored(x));
 
-                    foreach (var update in exceptIgnored)
+                    foreach (var update in updates)
                     {
+                        offset = update.Id + 1;
+                        if (ShouldBeIgnored(update))
+                            continue;
+
                         if (update.Type == UpdateType.Message)
                         {
                             if (update.Message!.MediaGroupId != null && update.Message!.MediaGroupId == mediaGroupId)
                                 continue;
                             mediaGroupId = update.Message.MediaGroupId;
                         }
-                        offset = update.Id + 1;
                         _ = ProcessInBackground(me, update);
                     }
                 }

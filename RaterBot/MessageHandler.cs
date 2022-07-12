@@ -143,8 +143,10 @@ internal sealed class MessageHandler
                         return;
                     }
 
-                    Debug.Assert(msg.MediaGroupId == null);
-                    await HandleMediaMessage(msg);
+                    if (msg.MediaGroupId != null)
+                        await HandleMediaGroup(msg);
+                    else
+                        await HandleMediaMessage(msg);
                 }
             }
         }
