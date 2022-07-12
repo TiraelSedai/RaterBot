@@ -22,6 +22,34 @@ namespace RaterBot
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             var me = await _botClient.GetMeAsync(cancellationToken: stoppingToken);
+            await _botClient.SetMyCommandsAsync(
+                new[]
+                {
+                    new BotCommand
+                    {
+                        Command = "text",
+                        Description = "Реплай на текстовое сообщение/линк чтобы бот преобразовал его в оцениваемое"
+                    },
+                    new BotCommand { Command = "top_posts_day", Description = "Топ постов дня" },
+                    new BotCommand { Command = "top_posts_week", Description = "Топ постов недели" },
+                    new BotCommand { Command = "top_authors_week", Description = "Топ авторов недели" },
+                    new BotCommand { Command = "top_authors_month", Description = "Топ авторов месяца" },
+                    new BotCommand { Command = "controversial_week", Description = "Топ противоречивых недели" },
+                    new BotCommand { Command = "controversial_month", Description = "Топ противоречивых месяца" },
+                    new BotCommand
+                    {
+                        Command = "delete",
+                        Description = "Реплай на своё случайно преобразованное сообщение чтобы удалить его"
+                    },
+                    new BotCommand
+                    {
+                        Command = "ignore",
+                        Description =
+                            "или #ignore, или /skip, или #skip - добавь к видео или фото, чтобы бот не преобразовывал его"
+                    }
+                },
+                cancellationToken: stoppingToken
+            );
 
             var offset = 0;
             while (!stoppingToken.IsCancellationRequested)

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Runtime.Caching;
 using System.Text;
 using LinqToDB;
 using RaterBot.Database;
@@ -80,6 +81,18 @@ internal sealed class MessageHandler
                     if (IsBotCommand(me.Username, msg.Text, "/top_authors_month"))
                     {
                         await HandleTopAuthors(update, Period.Month);
+                        return;
+                    }
+
+                    if (IsBotCommand(me.Username, msg.Text, "/controversial_month"))
+                    {
+                        await HandleControversial(update, Period.Month);
+                        return;
+                    }
+
+                    if (IsBotCommand(me.Username, msg.Text, "/controversial_week"))
+                    {
+                        await HandleControversial(update, Period.Week);
                         return;
                     }
 
@@ -202,164 +215,240 @@ internal sealed class MessageHandler
         _sqliteDb.Posts.Where(p => p.Id == post.Id).Delete();
     }
 
+    private async Task HandleControversial(Update update, Period period)
+    {
+        Debug.Assert(update.Message != null);
+        var chat = update.Message.Chat;
+
+        if (chat.Type != ChatType.Supergroup && string.IsNullOrWhiteSpace(chat.Username))
+        {
+            await _botClient.SendTextMessageAsync(
+                chat.Id,
+                "Этот чат не является супергруппой и не имеет имени: нет возможности оставлять ссылки на посты"
+            );
+            _logger.LogInformation($"{nameof(HandleControversial)} - unable to link top posts, skipping");
+            return;
+        }
+
+        var posts = _sqliteDb.Posts
+            .Where(p => p.ChatId == chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
+            .LoadWith(p => p.Interactions)
+            .ToList();
+
+        var controversialPosts = posts
+            .Select(
+                p =>
+                    new
+                    {
+                        Post = p,
+                        Likes = p.Interactions.Count(i => i.Reaction),
+                        Dislikes = p.Interactions.Count(i => !i.Reaction)
+                    }
+            )
+            .OrderByDescending(x => x.Dislikes)
+            .ThenBy(x => x.Likes)
+            .Take(20)
+            .ToList();
+
+        var userIds = controversialPosts.Select(x => x.Post.PosterId).Distinct().ToList();
+        var userIdToUser = await GetTelegramUsers(chat, userIds);
+
+        var message = new StringBuilder(1024);
+        message.Append("Топ постов за ");
+        message.Append(ForLast(period));
+        message.Append(':');
+        message.Append(Environment.NewLine);
+        var i = 0;
+        var sg = chat.Type == ChatType.Supergroup;
+        foreach (var item in controversialPosts)
+        {
+            AppendPlace(message, i);
+            var knownUser = userIdToUser.TryGetValue(item.Post.PosterId, out var user);
+
+            message.Append("[От ");
+            if (knownUser)
+                message.Append($"{UserEscaped(user!)}](");
+            else
+                message.Append("покинувшего чат пользователя](");
+
+            var link = sg
+                ? LinkToSuperGroupMessage(chat, item.Post.MessageId)
+                : LinkToGroupWithNameMessage(chat, item.Post.MessageId);
+            message.Append(link);
+            message.Append(")");
+            i++;
+        }
+
+        ReplyAndDeleteLater(update.Message, message.ToString(), ParseMode.MarkdownV2);
+    }
+
     private async Task HandleTopAuthors(Update update, Period period)
     {
-        //Debug.Assert(update.Message != null);
-        //var chat = update.Message.Chat;
-        //var interactions = _sqliteDb.Interactions
-        //    //.Where(x => x.Post.ChatId == chat.Id && x.Post.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
-        //    .Where(
-        //        x => x.Post.ChatId == -1001341205233 && x.Post.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period)
-        //    )
-        //    .LoadWith(x => x.Post)
-        //    .ToList();
+        Debug.Assert(update.Message != null);
+        var chat = update.Message.Chat;
+        var posts = _sqliteDb.Posts
+            .Where(p => p.ChatId == update.Message.Chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
+            .LoadWith(p => p.Interactions)
+            .ToList();
 
-        //if (!interactions.Where(i => i.Reaction).Any())
-        //{
-        //    await _botClient.SendTextMessageAsync(chat.Id, $"Не найдено заплюсованных постов за {ForLast(period)}");
-        //    return;
-        //}
+        if (!posts.SelectMany(x => x.Interactions).Where(i => i.Reaction).Any())
+        {
+            await _botClient.SendTextMessageAsync(chat.Id, $"Не найдено заплюсованных постов за {ForLast(period)}");
+            return;
+        }
 
-        //var postLikes = interactions
-        //    .GroupBy(i => i.Post.Id)
-        //    .ToDictionary(x => x.Key, x => x.Sum(y => y.Reaction ? 1 : -1));
+        var postWithLikes = posts.Select(p => new { Post = p, Likes = p.Interactions.Sum(i => i.Reaction ? 1 : -1) });
 
-        //var topAuthors = interactions
-        //    .GroupBy(x => x.Post.PosterId)
-        //    .Select(
-        //        g =>
-        //            new
-        //            {
-        //                g.Key,
-        //                HirschIndex = g.OrderByDescending(i => g.Sum(y => y.Reaction ? 1 : -1)),
-        //                Likes = g.Sum(p => p.Reaction ? 1 : -1)
-        //            }
-        //    )
-        //    .ToList();
-        ////.OrderByDescending(x => x.HirschIndex)
-        ////.ThenByDescending(x => x.Likes)
-        ////.Take(20)
-        ////.ToList();
+        var topAuthors = postWithLikes
+            .GroupBy(x => x.Post.PosterId)
+            .Select(
+                g =>
+                    new
+                    {
+                        PosterId = g.Key,
+                        Likes = g.Sum(x => x.Likes),
+                        HirschIndex = g.OrderByDescending(x => x.Likes)
+                            .TakeWhile((x, iter) => x.Likes >= iter + 1)
+                            .Count()
+                    }
+            )
+            .OrderByDescending(x => x.HirschIndex)
+            .ThenByDescending(x => x.Likes)
+            .Take(20)
+            .ToList();
 
-        //var userIds = topAuthors.Select(x => x.Key).Distinct();
-        //var userIdToUser = await GetTelegramUsers(chat, userIds);
+        var userIds = topAuthors.Select(x => x.PosterId).ToList();
+        var userIdToUser = await GetTelegramUsers(chat, userIds);
 
-        //var message = new StringBuilder(1024);
-        //message.Append("Топ авторов за ");
-        //message.Append(ForLast(period));
-        //message.Append(':');
-        //message.Append(Environment.NewLine);
-        //var i = 0;
-        //foreach (var item in topAuthors)
-        //{
-        //    AppendPlace(message, i);
+        var message = new StringBuilder(1024);
+        message.Append("Топ авторов за ");
+        message.Append(ForLast(period));
+        message.Append(':');
+        message.Append(Environment.NewLine);
+        var i = 0;
+        foreach (var item in topAuthors)
+        {
+            AppendPlace(message, i);
 
-        //    var knownUser = userIdToUser.TryGetValue(item.Key, out var user);
-        //    message.Append(knownUser ? GetFirstLastName(user!) : "покинувший чат пользователь");
-        //    message.Append($" очков: {item.HirschIndex}, апвоутов: {item.Likes}");
+            var knownUser = userIdToUser.TryGetValue(item.PosterId, out var user);
+            message.Append(knownUser ? GetFirstLastName(user!) : "покинувший чат пользователь");
+            message.Append($" очков: {item.HirschIndex}, апвоутов: {item.Likes}");
 
-        //    i++;
-        //}
+            i++;
+        }
 
-        //ReplyAndDeleteLater(update.Message, message.ToString());
+        ReplyAndDeleteLater(update.Message, message.ToString());
     }
 
     private async Task HandleTopPosts(Update update, Period period)
     {
-        //Debug.Assert(update.Message != null);
-        //var chat = update.Message.Chat;
+        Debug.Assert(update.Message != null);
+        var chat = update.Message.Chat;
 
-        //if (chat.Type != ChatType.Supergroup && string.IsNullOrWhiteSpace(chat.Username))
-        //{
-        //    await _botClient.SendTextMessageAsync(
-        //        chat.Id,
-        //        "Этот чат не является супергруппой и не имеет имени: нет возможности оставлять ссылки на посты"
-        //    );
-        //    _logger.LogInformation($"{nameof(HandleTopPosts)} - unable to link top posts, skipping");
-        //    return;
-        //}
+        if (chat.Type != ChatType.Supergroup && string.IsNullOrWhiteSpace(chat.Username))
+        {
+            await _botClient.SendTextMessageAsync(
+                chat.Id,
+                "Этот чат не является супергруппой и не имеет имени: нет возможности оставлять ссылки на посты"
+            );
+            _logger.LogInformation($"{nameof(HandleTopPosts)} - unable to link top posts, skipping");
+            return;
+        }
 
-        //var sql = MessageIdPlusCountPosterIdSql;
-        //var sqlParams = new { TimeAgo = DateTime.UtcNow - PeriodToTimeSpan(period), ChatId = chat.Id };
-        //var plusQuery = await _dbConnection.QueryAsync<(long MessageId, long PlusCount, long PosterId)>(sql, sqlParams);
-        //var plusList = plusQuery.ToList();
-        //var plus = plusList.ToDictionary(x => x.MessageId, x => x.PlusCount);
-        //var messageIdToUserId = plusList.ToDictionary(x => x.MessageId, x => x.PosterId);
-        //if (!plus.Any())
-        //{
-        //    await _botClient.SendTextMessageAsync(chat.Id, $"Не найдено заплюсованных постов за {ForLast(period)}");
-        //    _logger.LogInformation($"{nameof(HandleTopPosts)} - no upvoted posts, skipping");
-        //    return;
-        //}
+        var posts = _sqliteDb.Posts
+            .Where(p => p.ChatId == chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
+            .LoadWith(p => p.Interactions)
+            .ToList();
 
-        //sql = MessageIdMinusCountSql;
-        //var minus = (await _dbConnection.QueryAsync<(long MessageId, long MinusCount)>(sql, sqlParams)).ToDictionary(
-        //    x => x.MessageId,
-        //    y => y.MinusCount
-        //);
+        if (!posts.SelectMany(p => p.Interactions).Any())
+        {
+            await _botClient.SendTextMessageAsync(chat.Id, $"Не найдено заплюсованных постов за {ForLast(period)}");
+            _logger.LogInformation($"{nameof(HandleTopPosts)} - no upvoted posts, skipping");
+            return;
+        }
 
-        //var keys = plus.Keys.ToList();
-        //foreach (var key in keys)
-        //    plus[key] -= minus.GetValueOrDefault(key);
-        //var topPosts = plus.OrderByDescending(x => x.Value).Take(20).ToList();
+        var topPosts = posts
+            .Select(p => new { Post = p, Likes = p.Interactions.Sum(i => i.Reaction ? 1 : -1) })
+            .OrderByDescending(x => x.Likes)
+            .Take(20)
+            .ToList();
 
-        //var userIds = topPosts.Select(x => messageIdToUserId[x.Key]).Distinct();
-        //var userIdToUser = await GetTelegramUsers(chat, userIds);
+        var userIds = topPosts.Select(x => x.Post.PosterId).Distinct().ToList();
+        var userIdToUser = await GetTelegramUsers(chat, userIds);
 
-        //var message = new StringBuilder(1024);
-        //message.Append("Топ постов за ");
-        //message.Append(ForLast(period));
-        //message.Append(':');
-        //message.Append(Environment.NewLine);
-        //var i = 0;
-        //var sg = chat.Type == ChatType.Supergroup;
-        //foreach (var item in topPosts)
-        //{
-        //    AppendPlace(message, i);
-        //    var knownUser = userIdToUser.TryGetValue(messageIdToUserId[item.Key], out var user);
+        var message = new StringBuilder(1024);
+        message.Append("Топ постов за ");
+        message.Append(ForLast(period));
+        message.Append(':');
+        message.Append(Environment.NewLine);
+        var i = 0;
+        var sg = chat.Type == ChatType.Supergroup;
+        foreach (var item in topPosts)
+        {
+            AppendPlace(message, i);
+            var knownUser = userIdToUser.TryGetValue(item.Post.PosterId, out var user);
 
-        //    message.Append("[От ");
-        //    if (knownUser)
-        //        message.Append($"{UserEscaped(user!)}](");
-        //    else
-        //        message.Append("покинувшего чат пользователя](");
+            message.Append("[От ");
+            if (knownUser)
+                message.Append($"{UserEscaped(user!)}](");
+            else
+                message.Append("покинувшего чат пользователя](");
 
-        //    var link = sg ? LinkToSuperGroupMessage(chat, item.Key) : LinkToGroupWithNameMessage(chat, item.Key);
-        //    message.Append(link);
-        //    message.Append(") ");
-        //    if (item.Value > 0)
-        //        message.Append("\\+");
-        //    message.Append(item.Value);
-        //    i++;
-        //}
+            var link = sg
+                ? LinkToSuperGroupMessage(chat, item.Post.MessageId)
+                : LinkToGroupWithNameMessage(chat, item.Post.MessageId);
+            message.Append(link);
+            message.Append(") ");
+            if (item.Likes > 0)
+                message.Append("\\+");
+            message.Append(item.Likes);
+            i++;
+        }
 
-        //var m = await _botClient.SendTextMessageAsync(chat.Id, message.ToString(), ParseMode.MarkdownV2);
-        //_ = RemoveAfterSomeTime(chat, m.MessageId);
-        //_ = RemoveAfterSomeTime(chat, update.Message.MessageId);
+        ReplyAndDeleteLater(update.Message, message.ToString(), ParseMode.MarkdownV2);
     }
 
-    private async Task<Dictionary<long, User>> GetTelegramUsers(Chat chat, IEnumerable<long> userIds)
+    private async Task<Dictionary<long, User>> GetTelegramUsers(Chat chat, ICollection<long> userIds)
     {
-        var userIdToUser = new Dictionary<long, User>();
+        var userIdToUser = new Dictionary<long, User>(userIds.Count);
         foreach (var id in userIds)
+        {
+            if (MemoryCache.Default.Get(id.ToString()) is User fromCache)
+            {
+                userIdToUser[id] = fromCache;
+                continue;
+            }
+
             try
             {
                 var member = await _botClient.GetChatMemberAsync(chat.Id, id);
-                userIdToUser.Add(id, member.User);
+                userIdToUser[id] = member.User;
+                MemoryCache.Default.Add(
+                    id.ToString(),
+                    member,
+                    new CacheItemPolicy { SlidingExpiration = TimeSpan.FromHours(1) }
+                );
             }
             catch (ApiRequestException)
             {
                 // User not found for any reason, we don't care.
             }
+        }
 
         return userIdToUser;
     }
 
-    private void ReplyAndDeleteLater(Message message, string text)
+    private void ReplyAndDeleteLater(Message message, string text, ParseMode? parseMode = null)
     {
         _ = Task.Run(async () =>
         {
-            var m = await _botClient.SendTextMessageAsync(message.Chat.Id, text, replyToMessageId: message.MessageId);
+            var m = await _botClient.SendTextMessageAsync(
+                message.Chat.Id,
+                text,
+                replyToMessageId: message.MessageId,
+                disableNotification: true,
+                parseMode: parseMode
+            );
             await Task.Delay(TimeSpan.FromMinutes(10));
             await _botClient.DeleteMessageAsync(message.Chat.Id, m.MessageId);
             await _botClient.DeleteMessageAsync(message.Chat.Id, message.MessageId);
@@ -390,15 +479,11 @@ internal sealed class MessageHandler
         }
     }
 
-    private static string LinkToSuperGroupMessage(Chat chat, long messageId)
-    {
-        return $"https://t.me/c/{chat.Id.ToString()[4..]}/{messageId}";
-    }
+    private static string LinkToSuperGroupMessage(Chat chat, long messageId) =>
+        $"https://t.me/c/{chat.Id.ToString()[4..]}/{messageId}";
 
-    private static string LinkToGroupWithNameMessage(Chat chat, long messageId)
-    {
-        return $"https://t.me/{chat.Username}/{messageId}";
-    }
+    private static string LinkToGroupWithNameMessage(Chat chat, long messageId) =>
+        $"https://t.me/{chat.Username}/{messageId}";
 
     private async Task HandleCallbackData(Update update)
     {
@@ -530,17 +615,17 @@ internal sealed class MessageHandler
             replyToMessageId: msg.MessageId
         );
 
-        var tempFileName = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.mp4");
-        var ok = YtDlpHelper.Download(tiktokLink, tempFileName);
-        if (!ok)
-        {
-            _logger.LogInformation("Could not download the video, check logs");
-            await _botClient.DeleteMessageAsync(msg.Chat.Id, processingMsg.MessageId);
-            return;
-        }
-
         try
         {
+            var tempFileName = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.mp4");
+            var ok = YtDlpHelper.Download(tiktokLink, tempFileName);
+            if (!ok)
+            {
+                _logger.LogInformation("Could not download the video, check logs");
+                await _botClient.DeleteMessageAsync(msg.Chat.Id, processingMsg.MessageId);
+                return;
+            }
+
             await using (var stream = System.IO.File.Open(tempFileName, FileMode.Open, FileAccess.Read))
             {
                 var newMessage = await _botClient.SendVideoAsync(

@@ -14,6 +14,7 @@
 		<PackageReference Include="FluentMigrator.Runner" Version="3.3.2" />
 		<PackageReference Include="FluentMigrator.Runner.SQLite" Version="3.3.2" />
 		<PackageReference Include="System.Data.SQLite.Core" Version="1.0.116" />
+		<PackageReference Include="System.Runtime.Caching" Version="6.0.0" />
 		<PackageReference Include="Telegram.Bot" Version="18.0.0" />
 	</ItemGroup>
 

@@ -20,7 +20,7 @@ var host = Host.CreateDefaultBuilder(args)
                     new TelegramBotClient(
                         Environment.GetEnvironmentVariable("TELEGRAM_MEDIA_RATER_BOT_API")
                             //?? throw new Exception("TELEGRAM_MEDIA_RATER_BOT_API environment variable not set")
-                            ?? "5284410585:AAEN6xHRLWkF2Do62q72YjDhmtEBtg861Fc"
+                            ?? "5284410585:AAFYF2eq-N7Lf_lBXCXkLmqRo--lXLnYYjo"
                     )
             );
             services
