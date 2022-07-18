@@ -74,15 +74,15 @@ namespace RaterBot
                     foreach (var update in updates)
                     {
                         offset = update.Id + 1;
-                        if (ShouldBeIgnored(update))
-                            continue;
-
                         if (update.Type == UpdateType.Message)
                         {
                             if (update.Message!.MediaGroupId != null && update.Message!.MediaGroupId == mediaGroupId)
                                 continue;
                             mediaGroupId = update.Message.MediaGroupId;
                         }
+                        if (ShouldBeIgnored(update))
+                            continue;
+
                         _ = ProcessInBackground(me, update);
                     }
                 }
