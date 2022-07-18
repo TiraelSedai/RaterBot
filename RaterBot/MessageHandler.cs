@@ -387,6 +387,9 @@ internal sealed class MessageHandler
         var sg = chat.Type == ChatType.Supergroup;
         foreach (var item in topPosts)
         {
+            if (item.Likes <= 0)
+                break;
+
             AppendPlace(message, i);
             var knownUser = userIdToUser.TryGetValue(item.Post.PosterId, out var user);
 
@@ -500,7 +503,7 @@ internal sealed class MessageHandler
             return;
         }
 
-        _logger.LogWarning("Valid callback request");
+        _logger.LogDebug("Valid callback request");
         var post = _sqliteDb.Posts
             .Where(p => p.ChatId == msg.Chat.Id && p.MessageId == msg.MessageId)
             .LoadWith(p => p.Interactions)
