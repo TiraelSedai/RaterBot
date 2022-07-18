@@ -447,15 +447,22 @@ internal sealed class MessageHandler
     {
         _ = Task.Run(async () =>
         {
-            var m = await _botClient.SendTextMessageAsync(
-                message.Chat.Id,
-                text,
-                replyToMessageId: message.MessageId,
-                disableNotification: true,
-                parseMode: parseMode
-            );
-            await Task.Delay(TimeSpan.FromMinutes(10));
-            await _botClient.DeleteMessageAsync(message.Chat.Id, m.MessageId);
+            try
+            {
+                var m = await _botClient.SendTextMessageAsync(
+                    message.Chat.Id,
+                    text,
+                    replyToMessageId: message.MessageId,
+                    disableNotification: true,
+                    parseMode: parseMode
+                );
+                await Task.Delay(TimeSpan.FromMinutes(10));
+                await _botClient.DeleteMessageAsync(message.Chat.Id, m.MessageId);
+            }
+            catch (ApiRequestException are)
+            {
+                _logger.LogError(are, "Unable to send {Text} with parseMode = {ParseMode}", text, parseMode);
+            }
             await _botClient.DeleteMessageAsync(message.Chat.Id, message.MessageId);
         });
     }
