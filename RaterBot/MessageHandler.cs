@@ -72,6 +72,12 @@ internal sealed class MessageHandler
                         return;
                     }
 
+                    if (IsBotCommand(me.Username, msg.Text, "/top_posts_month"))
+                    {
+                        await HandleTopPosts(update, Period.Mounth);
+                        return;
+                    }
+
                     if (IsBotCommand(me.Username, msg.Text, "/top_authors_week"))
                     {
                         await HandleTopAuthors(update, Period.Week);
