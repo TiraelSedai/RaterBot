@@ -32,6 +32,7 @@ namespace RaterBot
                     },
                     new BotCommand { Command = "top_posts_day", Description = "Топ постов дня" },
                     new BotCommand { Command = "top_posts_week", Description = "Топ постов недели" },
+                    new BotCommand { Command = "top_posts_month", Description = "Топ постов месяца" },
                     new BotCommand { Command = "top_authors_week", Description = "Топ авторов недели" },
                     new BotCommand { Command = "top_authors_month", Description = "Топ авторов месяца" },
                     new BotCommand { Command = "controversial_week", Description = "Топ противоречивых недели" },
