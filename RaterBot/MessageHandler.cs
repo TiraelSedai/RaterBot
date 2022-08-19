@@ -250,11 +250,12 @@ internal sealed class MessageHandler
                     {
                         Post = p,
                         Likes = p.Interactions.Count(i => i.Reaction),
-                        Dislikes = p.Interactions.Count(i => !i.Reaction)
+                        Dislikes = p.Interactions.Count(i => !i.Reaction),
+                        Magnitude = p.Interactions.Count()
                     }
             )
-            .OrderByDescending(x => x.Dislikes)
-            .ThenBy(x => x.Likes)
+            .OrderByDescending(x => x.Magnitude * (double)Math.Min(x.Dislikes, x.Likes) / Math.Max(x.Dislikes, x.Likes))
+            .ThenByDescending(x => x.Dislikes)
             .Take(20)
             .ToList();
 
