@@ -1,5 +1,6 @@
 ﻿using LinqToDB.Data;
 using RaterBot.Database;
+using System.Text.RegularExpressions;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -60,7 +61,7 @@ namespace RaterBot
                     var updates = await _botClient.GetUpdatesAsync(
                         offset,
                         100,
-                        1800,
+                        60,
                         allowedUpdates: new[] { UpdateType.CallbackQuery, UpdateType.Message },
                         cancellationToken: stoppingToken
                     );
@@ -80,9 +81,9 @@ namespace RaterBot
                             if (update.Message!.MediaGroupId != null && update.Message!.MediaGroupId == mediaGroupId)
                                 continue;
                             mediaGroupId = update.Message.MediaGroupId;
+                            if (ShouldBeIgnored(update.Message))
+                                continue;
                         }
-                        if (ShouldBeIgnored(update))
-                            continue;
 
                         _ = ProcessInBackground(me, update);
                     }
@@ -101,19 +102,13 @@ namespace RaterBot
             await mh.HandleUpdate(me, update);
         }
 
-        private static bool ShouldBeIgnored(Update update)
-        {
-            if (update.Type != UpdateType.Message)
-                return false;
-
-            var caption = update.Message?.Caption?.ToLower();
-            return !string.IsNullOrWhiteSpace(caption)
-                && (
-                    caption.Contains("/skip")
-                    || caption.Contains("/ignore")
-                    || caption.Contains("#skip")
-                    || caption.Contains("#ignore")
-                );
-        }
+        private static bool ShouldBeIgnored(Message message) =>
+            message.Caption != null
+            && Regex.IsMatch(
+                message.Caption,
+                "(\\/|#)(ignore|skip)",
+                RegexOptions.Compiled | RegexOptions.IgnoreCase,
+                TimeSpan.FromSeconds(1)
+            );
     }
 }

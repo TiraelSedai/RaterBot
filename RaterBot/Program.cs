@@ -12,7 +12,9 @@ var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices(
         (hostContext, services) =>
         {
-            var connStr = hostContext.Configuration.GetConnectionString("Sqlite");
+            var connStr =
+                hostContext.Configuration.GetConnectionString("Sqlite")
+                ?? throw new ArgumentNullException("Sqlite config section is null");
             services.AddHostedService<Worker>();
             services.AddScoped<MessageHandler>();
             services.AddSingleton<ITelegramBotClient>(

@@ -1,5 +1,4 @@
-﻿using System;
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Runtime.Caching;
 using System.Text;
 using LinqToDB;
@@ -126,11 +125,20 @@ internal sealed class MessageHandler
                         return;
                     }
 
-                    var ttl = FindTikTokLink(msg);
-                    if (ttl != null)
+                    var (type, url) = FindSupportedSiteLink(msg);
+                    switch (type)
                     {
-                        await HandleTikTokAsync(update, ttl);
-                        return;
+                        case UrlType.Vk:
+                        case UrlType.TikTok:
+                            await HandleYtDlp(update, url!);
+                            return;
+                        case UrlType.Twitter:
+                        case UrlType.Instagram:
+                            await HandleGalleryDl(update, url!);
+                            break;
+                        case UrlType.NotFound:
+                        default:
+                            break;
                     }
                 }
 
@@ -163,24 +171,28 @@ internal sealed class MessageHandler
         }
     }
 
-    private static Uri? FindTikTokLink(Message msg)
+    private static (UrlType, Uri?) FindSupportedSiteLink(Message msg)
     {
-        if (msg.Text is null)
-            return null;
-        var entities =
-            msg.Entities?.Where(e => e.Type == MessageEntityType.Url).ToArray() ?? Array.Empty<MessageEntity>();
-        if (entities.Length == 0)
-            return null;
+        if (msg.Text == null || msg.Entities == null)
+            return (UrlType.NotFound, null);
+        var entities = msg.Entities.Where(e => e.Type == MessageEntityType.Url);
 
         foreach (var entity in entities)
         {
             var urlText = msg.Text[entity.Offset..(entity.Offset + entity.Length)];
             var url = new Uri(urlText);
-            if (url.Host.EndsWith("tiktok.com"))
-                return url;
+            var host = url.Host;
+            if (host.EndsWith("tiktok.com"))
+                return (UrlType.TikTok, url);
+            if (host.EndsWith("vk.com"))
+                return (UrlType.Vk, url);
+            if (host.EndsWith("twitter.com"))
+                return (UrlType.Twitter, url);
+            if (host.EndsWith("instagram.com"))
+                return (UrlType.Instagram, url);
         }
 
-        return null;
+        return (UrlType.NotFound, null);
     }
 
     private async Task HandleDelete(Update update, User bot)
@@ -474,10 +486,8 @@ internal sealed class MessageHandler
         });
     }
 
-    private static bool IsBotCommand(string username, string? msgText, string command)
-    {
-        return msgText != null && (msgText == command || msgText == $"{command}@{username}");
-    }
+    private static bool IsBotCommand(string username, string? msgText, string command) =>
+        msgText != null && (msgText == command || msgText == $"{command}@{username}");
 
     private static void AppendPlace(StringBuilder stringBuilder, int i)
     {
@@ -616,9 +626,9 @@ internal sealed class MessageHandler
         }
     }
 
-    private async Task HandleTikTokAsync(Update update, Uri tiktokLink)
+    private async Task HandleGalleryDl(Update update, Uri link)
     {
-        _logger.LogInformation("New tiktok message");
+        _logger.LogInformation("New HandleGalleryDl message");
 
         var msg = update.Message;
         Debug.Assert(msg != null);
@@ -626,7 +636,94 @@ internal sealed class MessageHandler
         Debug.Assert(from != null);
         var msgText = msg.Text;
         Debug.Assert(msgText != null);
-        Debug.Assert(tiktokLink != null);
+
+        var processingMsg = await _botClient.SendTextMessageAsync(
+            msg.Chat.Id,
+            "Processing...",
+            replyToMessageId: msg.MessageId
+        );
+
+        var disposeMe = Array.Empty<Stream>();
+        try
+        {
+            var fileList = await DownloadHelper.DownloadGalleryDl(link);
+            if (!fileList.Any())
+                return;
+
+            var album = fileList.Length > 1;
+            var photo = Path.GetExtension(fileList.First()) is ".jpg" or ".png";
+            disposeMe = fileList.Select(f => System.IO.File.Open(f, FileMode.Open, FileAccess.Read)).ToArray();
+
+            if (album)
+            {
+                var caption = MentionUsername(from);
+                var newMessage = await _botClient.SendMediaGroupAsync(
+                    msg.Chat.Id,
+                    disposeMe.Select(
+                        (x, i) =>
+                            // Videos cannot be album in Twitter, so we assume it's photo
+                            new InputMediaPhoto(new InputMedia(x, Path.GetFileName(fileList[i])))
+                            {
+                                Caption = caption,
+                                ParseMode = ParseMode.MarkdownV2
+                            }
+                    )
+                );
+                var rateMessage = await _botClient.SendTextMessageAsync(
+                    msg.Chat.Id,
+                    "Оценить альбом",
+                    replyMarkup: _newPostIkm,
+                    replyToMessageId: newMessage.First().MessageId
+                );
+                InsertIntoPosts(msg.Chat.Id, from.Id, rateMessage.MessageId);
+            }
+            else if (photo)
+            {
+                var newMessage = await _botClient.SendPhotoAsync(
+                    msg.Chat.Id,
+                    new InputOnlineFile(disposeMe.First()),
+                    replyMarkup: _newPostIkm,
+                    caption: MentionUsername(from),
+                    parseMode: ParseMode.MarkdownV2
+                );
+                InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+            }
+            else
+            {
+                var newMessage = await _botClient.SendVideoAsync(
+                    msg.Chat.Id,
+                    new InputOnlineFile(disposeMe.First()),
+                    replyMarkup: _newPostIkm,
+                    caption: MentionUsername(from),
+                    parseMode: ParseMode.MarkdownV2
+                );
+                InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+            }
+
+            _ = _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
+        }
+        catch (Exception e)
+        {
+            _logger.LogInformation(e, nameof(HandleGalleryDl));
+        }
+        finally
+        {
+            foreach (var fileStream in disposeMe)
+                fileStream.Dispose();
+            _ = _botClient.DeleteMessageAsync(msg.Chat.Id, processingMsg.MessageId);
+        }
+    }
+
+    private async Task HandleYtDlp(Update update, Uri videoLink)
+    {
+        _logger.LogInformation("New YtDlp supported message");
+
+        var msg = update.Message;
+        Debug.Assert(msg != null);
+        var from = msg.From;
+        Debug.Assert(from != null);
+        var msgText = msg.Text;
+        Debug.Assert(msgText != null);
 
         var processingMsg = await _botClient.SendTextMessageAsync(
             msg.Chat.Id,
@@ -636,12 +733,10 @@ internal sealed class MessageHandler
 
         try
         {
-            var tempFileName = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid()}.mp4");
-            var ok = YtDlpHelper.Download(tiktokLink, tempFileName);
-            if (!ok)
+            var tempFileName = DownloadHelper.DownloadYtDlp(videoLink);
+            if (tempFileName == null)
             {
                 _logger.LogInformation("Could not download the video, check logs");
-                await _botClient.DeleteMessageAsync(msg.Chat.Id, processingMsg.MessageId);
                 return;
             }
 
@@ -658,19 +753,10 @@ internal sealed class MessageHandler
             }
 
             _ = _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
-
-            for (var retries = 3; retries >= 0; retries--)
-            {
-                System.IO.File.Delete(tempFileName);
-                if (System.IO.File.Exists(tempFileName))
-                    await Task.Delay(TimeSpan.FromSeconds(1));
-                else
-                    break;
-            }
         }
         catch (Exception e)
         {
-            _logger.LogInformation(e, nameof(HandleTikTokAsync));
+            _logger.LogInformation(e, nameof(HandleYtDlp));
         }
         finally
         {
@@ -756,7 +842,7 @@ internal sealed class MessageHandler
         {
             var newMessage = await _botClient.SendTextMessageAsync(
                 msg.Chat.Id,
-                "Оценить всю серию",
+                "Оценить альбом",
                 replyToMessageId: msg.MessageId,
                 replyMarkup: _newPostIkm
             );
