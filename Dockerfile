@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build-env
+FROM mcr.microsoft.com/dotnet/sdk:8.0-preview AS build-env
 WORKDIR /app
 
 # Copy everything
@@ -6,13 +6,13 @@ COPY . ./
 # Restore as distinct layers
 RUN dotnet restore
 # Build and publish a release
-RUN dotnet publish -c Release -o out
+WORKDIR RaterBot
+RUN dotnet publish -o /out
 
 # Build runtime image
-FROM mcr.microsoft.com/dotnet/runtime:7.0
-RUN printf "deb http://deb.debian.org/debian bullseye-backports main contrib non-free\ndeb-src http://deb.debian.org/debian bullseye-backports main contrib non-free" > /etc/apt/sources.list.d/backports.list
+FROM mcr.microsoft.com/dotnet/runtime:8.0-preview
 RUN apt update && apt install -y yt-dlp ffmpeg python3 gallery-dl && apt clean && apt autoremove
 WORKDIR /app
-COPY --from=build-env /app/out .
+COPY --from=build-env /out .
 ENTRYPOINT ["dotnet", "RaterBot.dll"]
-ENV DOTNET_ReadyToRun=0
+USER app
