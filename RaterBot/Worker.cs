@@ -102,13 +102,16 @@ namespace RaterBot
             await mh.HandleUpdate(me, update);
         }
 
-        private static bool ShouldBeIgnored(Message message) =>
-            message.Caption != null
-            && Regex.IsMatch(
-                message.Caption,
-                "(\\/|#)(ignore|skip)",
-                RegexOptions.Compiled | RegexOptions.IgnoreCase,
-                TimeSpan.FromSeconds(1)
-            );
+        private static bool ShouldBeIgnored(Message message)
+        {
+            var text = message.Caption ?? message.Text;
+            return text != null
+                && Regex.IsMatch(
+                    text,
+                    "(\\/|#)(ignore|skip)",
+                    RegexOptions.Compiled | RegexOptions.IgnoreCase,
+                    TimeSpan.FromSeconds(1)
+                );
+        }
     }
 }
