@@ -2,7 +2,8 @@
 Simple bot that allows to upvote and downvote photos, videos and overall text messages, e.g. memes.
 
 ### Automatic download
-It also downloads videos from [TikTok](https://www.tiktok.com/) to Telegram automatically.
+It also downloads videos from TikTok, VK, Reddit & Instagram automatically.
+In order to download from Reddit 18+ or Insta consistently, add cookies extracted using [this plugin](https://github.com/rotemdan/ExportCookies) to db/cookies.txt.
 
 ## Usage
 ### Hosted by me
@@ -16,7 +17,8 @@ Get from [Docker Hub](https://hub.docker.com/repository/docker/tiraelsedai/rater
 You have to specify TELEGRAM_MEDIA_RATER_BOT_API env variable.
 
 #### As standalone binary
-On top of TELEGRAM_MEDIA_RATER_BOT_API variable, you need to have [yt-dlp](https://github.com/yt-dlp/yt-dlp) installed and have the binary in PATH.
+On top of TELEGRAM_MEDIA_RATER_BOT_API variable, you need to have yt-dlp installed and have the binary in PATH.
+There should be also gallery-dl, ffmpeg & python installed. Please, refer to Dockerfile and see what gets apt installed.
 
 #### Arm64 (Apple M1 and other)
-Is not tested, but should work perfectly fine if yt-dlp works.
+Is not tested, but should work perfectly fine.
