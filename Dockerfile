@@ -1,18 +1,21 @@
-FROM mcr.microsoft.com/dotnet/sdk:8.0-preview AS build-env
+FROM mcr.microsoft.com/dotnet/runtime:8.0-preview AS base
 WORKDIR /app
 
-# Copy everything
-COPY . ./
-# Restore as distinct layers
-RUN dotnet restore
-# Build and publish a release
-WORKDIR RaterBot
-RUN dotnet publish -o /out
+FROM mcr.microsoft.com/dotnet/sdk:8.0-preview AS build
+WORKDIR /src
+COPY ["RaterBot/RaterBot.csproj", "RaterBot/"]
+COPY ["RaterBot.Database/RaterBot.Database.csproj", "RaterBot.Database/"]
+RUN dotnet restore "RaterBot/RaterBot.csproj"
+COPY . .
+WORKDIR "/src/RaterBot"
+RUN dotnet build "RaterBot.csproj" -c Release -o /app/build
 
-# Build runtime image
-FROM mcr.microsoft.com/dotnet/runtime:8.0-preview
+FROM build AS publish
+RUN dotnet publish "RaterBot.csproj" -c Release -o /app/publish /p:UseAppHost=false
+
+FROM base AS final
 RUN apt update && apt install -y yt-dlp ffmpeg python3 gallery-dl && apt clean && apt autoremove
 WORKDIR /app
-COPY --from=build-env /out .
+COPY --from=publish /app/publish .
 ENTRYPOINT ["dotnet", "RaterBot.dll"]
-USER app
+# totally not USER app
