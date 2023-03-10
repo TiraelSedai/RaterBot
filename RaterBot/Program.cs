@@ -49,6 +49,8 @@ using (var scope = host.Services.CreateScope())
 {
     if (!Directory.Exists("db"))
         Directory.CreateDirectory("db");
+    if (!File.Exists("db/cookies.txt"))
+        File.Create("db/cookies.txt");
 
     using (var dbc = scope.ServiceProvider.GetRequiredService<SqliteDb>())
     {

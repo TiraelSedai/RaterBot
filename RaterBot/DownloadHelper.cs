@@ -1,4 +1,3 @@
-using System.Data.SqlServerCe;
 using System.Diagnostics;
 
 namespace RaterBot;
@@ -9,7 +8,8 @@ internal enum UrlType
     Instagram,
     Twitter,
     TikTok,
-    Vk
+    Vk,
+    Reddit
 }
 
 internal static class DownloadHelper
@@ -18,7 +18,7 @@ internal static class DownloadHelper
 
     public static async Task<string[]> DownloadGalleryDl(Uri url)
     {
-        var args = $"\"{url}\" -d {_tmp} -o browser=firefox";
+        var args = $"\"{url}\" --cookies db/cookies.txt -d {_tmp} -o browser=firefox";
 
         using var process = new Process
         {

@@ -132,6 +132,7 @@ internal sealed class MessageHandler
                         case UrlType.TikTok:
                             await HandleYtDlp(update, url!);
                             return;
+                        case UrlType.Reddit:
                         case UrlType.Twitter:
                         case UrlType.Instagram:
                             await HandleGalleryDl(update, url!);
@@ -190,6 +191,8 @@ internal sealed class MessageHandler
                 return (UrlType.Twitter, url);
             if (host.EndsWith("instagram.com"))
                 return (UrlType.Instagram, url);
+            if (host.EndsWith("reddit.com"))
+                return (UrlType.Reddit, url);
         }
 
         return (UrlType.NotFound, null);
