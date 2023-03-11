@@ -25,7 +25,7 @@ internal static class DownloadHelper
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = "yt-dlp",
+                FileName = "gallery-dl",
                 Arguments = args,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true
