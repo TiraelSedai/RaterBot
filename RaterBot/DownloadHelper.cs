@@ -9,7 +9,8 @@ internal enum UrlType
     Twitter,
     TikTok,
     Vk,
-    Reddit
+    Reddit,
+    Youtube
 }
 
 internal static class DownloadHelper
@@ -24,7 +25,7 @@ internal static class DownloadHelper
         {
             StartInfo = new ProcessStartInfo
             {
-                FileName = "gallery-dl",
+                FileName = "yt-dlp",
                 Arguments = args,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true
@@ -75,9 +76,10 @@ internal static class DownloadHelper
                 }
         });
 
-    public static string? DownloadYtDlp(Uri url)
+    public static string? DownloadYtDlp(Uri url, UrlType urlType)
     {
-        var file = Path.Combine(_tmp, $"{Guid.NewGuid()}.mp4");
+        var ext = urlType == UrlType.Youtube ? "webm" : "mp4";
+        var file = Path.Combine(_tmp, $"{Guid.NewGuid()}.{ext}");
         using var process = new Process
         {
             StartInfo = new ProcessStartInfo

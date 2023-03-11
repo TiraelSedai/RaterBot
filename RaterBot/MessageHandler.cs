@@ -130,7 +130,8 @@ internal sealed class MessageHandler
                     {
                         case UrlType.Vk:
                         case UrlType.TikTok:
-                            await HandleYtDlp(update, url!);
+                        case UrlType.Youtube:
+                            await HandleYtDlp(update, url!, type);
                             return;
                         case UrlType.Reddit:
                         case UrlType.Twitter:
@@ -193,6 +194,8 @@ internal sealed class MessageHandler
                 return (UrlType.Instagram, url);
             if (host.EndsWith("reddit.com"))
                 return (UrlType.Reddit, url);
+            if (host.EndsWith("youtube.com") && urlText.Contains("youtube.com/shorts"))
+                return (UrlType.Youtube, url);
         }
 
         return (UrlType.NotFound, null);
@@ -717,7 +720,7 @@ internal sealed class MessageHandler
         }
     }
 
-    private async Task HandleYtDlp(Update update, Uri videoLink)
+    private async Task HandleYtDlp(Update update, Uri videoLink, UrlType urlType)
     {
         _logger.LogInformation("New YtDlp supported message");
 
@@ -736,7 +739,7 @@ internal sealed class MessageHandler
 
         try
         {
-            var tempFileName = DownloadHelper.DownloadYtDlp(videoLink);
+            var tempFileName = DownloadHelper.DownloadYtDlp(videoLink, urlType);
             if (tempFileName == null)
             {
                 _logger.LogInformation("Could not download the video, check logs");
