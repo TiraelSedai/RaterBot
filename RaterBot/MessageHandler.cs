@@ -665,15 +665,17 @@ internal sealed class MessageHandler
                 var caption = MentionUsername(from);
                 var newMessage = await _botClient.SendMediaGroupAsync(
                     msg.Chat.Id,
-                    disposeMe.Select(
-                        (x, i) =>
-                            // Videos cannot be album in Twitter, so we assume it's photo
-                            new InputMediaPhoto(new InputMedia(x, Path.GetFileName(fileList[i])))
-                            {
-                                Caption = caption,
-                                ParseMode = ParseMode.MarkdownV2
-                            }
-                    )
+                    disposeMe
+                        .Take(10)
+                        .Select(
+                            (x, i) =>
+                                // Videos cannot be album in Twitter, so we assume it's photo
+                                new InputMediaPhoto(new InputMedia(x, Path.GetFileName(fileList[i])))
+                                {
+                                    Caption = caption,
+                                    ParseMode = ParseMode.MarkdownV2
+                                }
+                        )
                 );
                 var rateMessage = await _botClient.SendTextMessageAsync(
                     msg.Chat.Id,

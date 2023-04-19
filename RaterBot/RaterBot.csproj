@@ -12,11 +12,11 @@
 
 	<ItemGroup>
 		<PackageReference Include="linq2db.AspNet" Version="4.4.1" />
-		<PackageReference Include="Microsoft.Extensions.Hosting" Version="7.0.1" />
+		<PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0-preview.3.23174.8" />
 		<PackageReference Include="FluentMigrator.Runner" Version="3.3.2" />
 		<PackageReference Include="FluentMigrator.Runner.SQLite" Version="3.3.2" />
 		<PackageReference Include="System.Data.SQLite.Core" Version="1.0.117" />
-		<PackageReference Include="System.Runtime.Caching" Version="8.0.0-preview.1.23110.8" />
+		<PackageReference Include="System.Runtime.Caching" Version="8.0.0-preview.3.23174.8" />
 		<PackageReference Include="Telegram.Bot" Version="18.0.0" />
 	</ItemGroup>
 
