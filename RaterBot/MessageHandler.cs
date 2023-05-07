@@ -574,7 +574,7 @@ internal sealed class MessageHandler
                 var reaction = newReaction ? "👍" : "👎";
                 await _botClient.AnswerCallbackQueryAsync(
                     update.CallbackQuery.Id,
-                    $"Ты уже поставил {reaction} этому посту"
+                    $"Ты уже поставил(-а) {reaction} этому посту"
                 );
                 _logger.LogInformation("No need to update reaction");
                 return;
