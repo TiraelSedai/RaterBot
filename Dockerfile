@@ -1,7 +1,7 @@
-FROM mcr.microsoft.com/dotnet/runtime:8.0-preview AS base
+FROM mcr.microsoft.com/dotnet/runtime:8.0 AS base
 WORKDIR /app
 
-FROM mcr.microsoft.com/dotnet/sdk:8.0-preview AS build
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 COPY ["RaterBot/RaterBot.csproj", "RaterBot/"]
 COPY ["RaterBot.Database/RaterBot.Database.csproj", "RaterBot.Database/"]

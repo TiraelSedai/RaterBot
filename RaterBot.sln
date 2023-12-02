@@ -5,7 +5,12 @@ VisualStudioVersion = 17.0.31717.71
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RaterBot", "RaterBot\RaterBot.csproj", "{475B9964-CD43-4964-8892-9AC9E2D5C65B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RaterBot.Database", "RaterBot.Database\RaterBot.Database.csproj", "{4267C72A-0835-42B8-B637-90F9DA40D5BC}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RaterBot.Database", "RaterBot.Database\RaterBot.Database.csproj", "{4267C72A-0835-42B8-B637-90F9DA40D5BC}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{42013A8F-816A-49E3-B3DD-1014FF1C419A}"
+	ProjectSection(SolutionItems) = preProject
+		Dockerfile = Dockerfile
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

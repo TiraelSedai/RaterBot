@@ -1,4 +1,5 @@
 using FluentMigrator.Runner;
+using LinqToDB;
 using LinqToDB.AspNet;
 using LinqToDB.AspNet.Logging;
 using LinqToDB.Configuration;
@@ -36,10 +37,7 @@ var host = Host.CreateDefaultBuilder(args)
                 .AddLogging(lb => lb.AddFluentMigratorConsole())
                 .BuildServiceProvider(false);
             services.AddLinqToDBContext<SqliteDb>(
-                (provider, options) =>
-                {
-                    options.UseSQLite(connStr).UseDefaultLogging(provider);
-                }
+                (provider, options) => options.UseSQLite(connStr).UseDefaultLogging(provider)
             );
         }
     )

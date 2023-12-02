@@ -1,0 +1,10 @@
+version: "2.1"
+
+services:
+  raterbot:
+    image: raterbot
+    container_name: raterbot
+    volumes:
+      - testmeme:/app/db
+volumes:
+  testmeme:

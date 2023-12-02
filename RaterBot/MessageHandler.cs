@@ -7,7 +7,6 @@ using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
-using Telegram.Bot.Types.InputFiles;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace RaterBot;
@@ -670,7 +669,7 @@ internal sealed class MessageHandler
                         .Select(
                             (x, i) =>
                                 // Videos cannot be album in Twitter, so we assume it's photo
-                                new InputMediaPhoto(new InputMedia(x, Path.GetFileName(fileList[i])))
+                                new InputMediaPhoto(InputFile.FromStream(x, Path.GetFileName(fileList[i])))
                                 {
                                     Caption = caption,
                                     ParseMode = ParseMode.MarkdownV2
@@ -689,7 +688,7 @@ internal sealed class MessageHandler
             {
                 var newMessage = await _botClient.SendPhotoAsync(
                     msg.Chat.Id,
-                    new InputOnlineFile(disposeMe.First()),
+                    InputFile.FromStream(disposeMe.First()),
                     replyMarkup: _newPostIkm,
                     caption: MentionUsername(from),
                     parseMode: ParseMode.MarkdownV2
@@ -700,7 +699,7 @@ internal sealed class MessageHandler
             {
                 var newMessage = await _botClient.SendVideoAsync(
                     msg.Chat.Id,
-                    new InputOnlineFile(disposeMe.First()),
+                    InputFile.FromStream(disposeMe.First()),
                     replyMarkup: _newPostIkm,
                     caption: MentionUsername(from),
                     parseMode: ParseMode.MarkdownV2
@@ -752,7 +751,7 @@ internal sealed class MessageHandler
             {
                 var newMessage = await _botClient.SendVideoAsync(
                     msg.Chat.Id,
-                    new InputOnlineFile(stream),
+                    InputFile.FromStream(stream),
                     replyMarkup: _newPostIkm,
                     caption: MentionUsername(from),
                     parseMode: ParseMode.MarkdownV2
