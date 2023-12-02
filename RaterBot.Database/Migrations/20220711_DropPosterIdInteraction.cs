@@ -8,7 +8,7 @@ namespace RaterBot.Database.Migrations
         public override void Up()
         {
             Create
-                .Table("New_Interaciton")
+                .Table("New_Interaction")
                 .WithColumn("Id")
                 .AsInt64()
                 .PrimaryKey()
@@ -27,13 +27,13 @@ namespace RaterBot.Database.Migrations
                 .Indexed();
 
             Execute.Sql(
-                "INSERT INTO \"New_Interaciton\" (\"UserId\", \"Reaction\", \"PostId\") "
+                "INSERT INTO \"New_Interaction\" (\"UserId\", \"Reaction\", \"PostId\") "
                     + "SELECT i.\"UserId\", i.\"Reaction\", p.\"Id\" FROM \"Post\" p "
                     + "INNER JOIN \"Interaction\" i ON i.\"MessageId\" = p.\"MessageId\" AND i.\"ChatId\" = p.\"ChatId\""
             );
 
             Delete.Table(nameof(Interaction));
-            Execute.Sql($"ALTER TABLE \"New_Interaciton\" RENAME TO \"{nameof(Interaction)}\"");
+            Execute.Sql($"ALTER TABLE \"New_Interaction\" RENAME TO \"{nameof(Interaction)}\"");
         }
 
         public override void Down()

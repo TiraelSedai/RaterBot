@@ -1,0 +1,1 @@
+dotnet linq2db scaffold -p SQLite -c "Data Source=..\RaterBot\db\sqlite.db" -n RaterBot.Database --overwrite true

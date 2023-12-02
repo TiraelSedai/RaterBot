@@ -24,7 +24,7 @@ namespace RaterBot.Database
 		/// <summary>
 		/// FK_Interaction_0_0
 		/// </summary>
-		[Association(CanBeNull = false, ThisKey = nameof(PostId), OtherKey = nameof(RaterBot.Database.Post.Id))]
+		[Association(CanBeNull = false, ThisKey = nameof(PostId), OtherKey = nameof(Database.Post.Id))]
 		public Post Post { get; set; } = null!;
 		#endregion
 	}
