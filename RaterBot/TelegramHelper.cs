@@ -2,6 +2,8 @@
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
 using Telegram.Bot;
+using Telegram.Bot.Types.ReplyMarkups;
+using System.Text;
 
 namespace RaterBot
 {
@@ -40,5 +42,46 @@ namespace RaterBot
 
             return userIdToUser;
         }
+
+        public static readonly InlineKeyboardMarkup NewPostIkm =
+            new(
+                new[]
+                {
+                    new InlineKeyboardButton("👍") { CallbackData = "+" },
+                    new InlineKeyboardButton("👎") { CallbackData = "-" }
+                }
+            );
+
+        public static string MentionUsername(User user)
+        {
+            var whoEscaped = UserEscaped(user);
+            return $"[От {whoEscaped}](tg://user?id={user.Id})";
+        }
+
+        public static string GetFirstLastName(User user)
+        {
+            var last = user.LastName ?? string.Empty;
+            var who = $"{user.FirstName} {last}".Trim();
+            if (string.IsNullOrWhiteSpace(who))
+                who = "аноним";
+            return who;
+        }
+
+        public static string UserEscaped(User user)
+        {
+            var who = GetFirstLastName(user);
+            var whoEscaped = new StringBuilder(who.Length);
+            foreach (var c in who)
+            {
+                if (_shouldBeEscaped.Contains(c))
+                    whoEscaped.Append('\\');
+                whoEscaped.Append(c);
+            }
+
+            return whoEscaped.ToString();
+        }
+
+        private static readonly char[] _shouldBeEscaped =
+            [ '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!' ];
     }
 }

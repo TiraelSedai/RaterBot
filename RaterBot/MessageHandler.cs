@@ -23,18 +23,6 @@ internal sealed class MessageHandler
         _logger = logger;
     }
 
-    private static readonly InlineKeyboardMarkup _newPostIkm =
-        new(
-            new[]
-            {
-                new InlineKeyboardButton("👍") { CallbackData = "+" },
-                new InlineKeyboardButton("👎") { CallbackData = "-" }
-            }
-        );
-
-    private static readonly HashSet<char> _shouldBeEscaped =
-        new() { '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!' };
-
     public async Task HandleUpdate(User me, Update update)
     {
         Debug.Assert(me.Username != null);
@@ -292,7 +280,7 @@ internal sealed class MessageHandler
 
             message.Append("[От ");
             if (knownUser)
-                message.Append($"{UserEscaped(user!)}](");
+                message.Append($"{TelegramHelper.UserEscaped(user!)}](");
             else
                 message.Append("покинувшего чат пользователя](");
 
@@ -356,7 +344,7 @@ internal sealed class MessageHandler
             AppendPlace(message, i);
 
             var knownUser = userIdToUser.TryGetValue(item.PosterId, out var user);
-            message.Append(knownUser ? GetFirstLastName(user!) : "покинувший чат пользователь");
+            message.Append(knownUser ? TelegramHelper.GetFirstLastName(user!) : "покинувший чат пользователь");
             message.Append($" очков: {item.HirschIndex}, апвоутов: {item.Likes}");
 
             i++;
@@ -418,7 +406,7 @@ internal sealed class MessageHandler
 
             message.Append("[От ");
             if (knownUser)
-                message.Append($"{UserEscaped(user!)}](");
+                message.Append($"{TelegramHelper.UserEscaped(user!)}](");
             else
                 message.Append("покинувшего чат пользователя](");
 
@@ -646,7 +634,7 @@ internal sealed class MessageHandler
 
             if (album)
             {
-                var caption = MentionUsername(from);
+                var caption = TelegramHelper.MentionUsername(from);
                 var newMessage = await _botClient.SendMediaGroupAsync(
                     msg.Chat.Id,
                     disposeMe
@@ -664,7 +652,7 @@ internal sealed class MessageHandler
                 var rateMessage = await _botClient.SendTextMessageAsync(
                     msg.Chat.Id,
                     "Оценить альбом",
-                    replyMarkup: _newPostIkm,
+                    replyMarkup: TelegramHelper.NewPostIkm,
                     replyToMessageId: newMessage.First().MessageId
                 );
                 InsertIntoPosts(msg.Chat.Id, from.Id, rateMessage.MessageId);
@@ -674,8 +662,8 @@ internal sealed class MessageHandler
                 var newMessage = await _botClient.SendPhotoAsync(
                     msg.Chat.Id,
                     InputFile.FromStream(disposeMe.First()),
-                    replyMarkup: _newPostIkm,
-                    caption: MentionUsername(from),
+                    replyMarkup: TelegramHelper.NewPostIkm,
+                    caption: TelegramHelper.MentionUsername(from),
                     parseMode: ParseMode.MarkdownV2
                 );
                 InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
@@ -685,8 +673,8 @@ internal sealed class MessageHandler
                 var newMessage = await _botClient.SendVideoAsync(
                     msg.Chat.Id,
                     InputFile.FromStream(disposeMe.First()),
-                    replyMarkup: _newPostIkm,
-                    caption: MentionUsername(from),
+                    replyMarkup: TelegramHelper.NewPostIkm,
+                    caption: TelegramHelper.MentionUsername(from),
                     parseMode: ParseMode.MarkdownV2
                 );
                 InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
@@ -737,8 +725,8 @@ internal sealed class MessageHandler
                 var newMessage = await _botClient.SendVideoAsync(
                     msg.Chat.Id,
                     InputFile.FromStream(stream),
-                    replyMarkup: _newPostIkm,
-                    caption: MentionUsername(from),
+                    replyMarkup: TelegramHelper.NewPostIkm,
+                    caption: TelegramHelper.MentionUsername(from),
                     parseMode: ParseMode.MarkdownV2
                 );
                 InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
@@ -769,7 +757,7 @@ internal sealed class MessageHandler
         var newMessage = await _botClient.SendTextMessageAsync(
             msg.Chat.Id,
             $"{AtMentionUsername(from)}:{Environment.NewLine}{replyTo.Text}",
-            replyMarkup: _newPostIkm
+            replyMarkup: TelegramHelper.NewPostIkm
         );
         try
         {
@@ -811,8 +799,8 @@ internal sealed class MessageHandler
                 msg.Chat.Id,
                 msg.Chat.Id,
                 msg.MessageId,
-                replyMarkup: _newPostIkm,
-                caption: MentionUsername(from),
+                replyMarkup: TelegramHelper.NewPostIkm,
+                caption: TelegramHelper.MentionUsername(from),
                 parseMode: ParseMode.MarkdownV2
             );
             InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.Id);
@@ -837,7 +825,7 @@ internal sealed class MessageHandler
                 msg.Chat.Id,
                 "Оценить альбом",
                 replyToMessageId: msg.MessageId,
-                replyMarkup: _newPostIkm
+                replyMarkup: TelegramHelper.NewPostIkm
             );
             InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId, msg.MessageId);
         }
@@ -847,44 +835,15 @@ internal sealed class MessageHandler
         }
     }
 
-    private static string MentionUsername(User user)
-    {
-        var whoEscaped = UserEscaped(user);
-        return $"[От {whoEscaped}](tg://user?id={user.Id})";
-    }
-
-    private static string UserEscaped(User user)
-    {
-        var who = GetFirstLastName(user);
-        var whoEscaped = new StringBuilder(who.Length);
-        foreach (var c in who)
-        {
-            if (_shouldBeEscaped.Contains(c))
-                whoEscaped.Append('\\');
-            whoEscaped.Append(c);
-        }
-
-        return whoEscaped.ToString();
-    }
-
     private static string AtMentionUsername(User user)
     {
         if (string.IsNullOrWhiteSpace(user.Username))
         {
-            var who = GetFirstLastName(user);
+            var who = TelegramHelper.GetFirstLastName(user);
             return $"От {who} без ника в телеге";
         }
 
         return $"От @{user.Username}";
-    }
-
-    private static string GetFirstLastName(User user)
-    {
-        var last = user.LastName ?? string.Empty;
-        var who = $"{user.FirstName} {last}".Trim();
-        if (string.IsNullOrWhiteSpace(who))
-            who = "аноним";
-        return who;
     }
 
     private static TimeSpan PeriodToTimeSpan(Period period)
