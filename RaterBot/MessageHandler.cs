@@ -186,7 +186,7 @@ internal sealed class MessageHandler
                 return (UrlType.TikTok, url);
             if (host.EndsWith("vk.com"))
                 return (UrlType.Vk, url);
-            if (host.EndsWith("twitter.com"))
+            if (host.EndsWith("twitter.com") || host.Equals("x.com"))
                 return (UrlType.Twitter, url);
             if (host.EndsWith("instagram.com"))
                 return (UrlType.Instagram, url);
