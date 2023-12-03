@@ -17,11 +17,12 @@ namespace RaterBot.Database
 	[Table("Post")]
 	public class Post
 	{
-		[Column("Id"       , IsPrimaryKey = true, IsIdentity = true, SkipOnInsert = true, SkipOnUpdate = true)] public long     Id        { get; set; } // integer
-		[Column("ChatId"                                                                                     )] public long     ChatId    { get; set; } // integer
-		[Column("PosterId"                                                                                   )] public long     PosterId  { get; set; } // integer
-		[Column("MessageId"                                                                                  )] public long     MessageId { get; set; } // integer
-		[Column("Timestamp"                                                                                  )] public DateTime Timestamp { get; set; } // datetime
+		[Column("Id"            , IsPrimaryKey = true, IsIdentity = true, SkipOnInsert = true, SkipOnUpdate = true)] public long     Id             { get; set; } // integer
+		[Column("ChatId"                                                                                          )] public long     ChatId         { get; set; } // integer
+		[Column("PosterId"                                                                                        )] public long     PosterId       { get; set; } // integer
+		[Column("MessageId"                                                                                       )] public long     MessageId      { get; set; } // integer
+		[Column("Timestamp"                                                                                       )] public DateTime Timestamp      { get; set; } // datetime
+		[Column("ReplyMessageId"                                                                                  )] public long?    ReplyMessageId { get; set; } // integer
 
 		#region Associations
 		/// <summary>

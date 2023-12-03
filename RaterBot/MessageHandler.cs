@@ -1,5 +1,4 @@
 ﻿using System.Diagnostics;
-using System.Runtime.Caching;
 using System.Text;
 using LinqToDB;
 using RaterBot.Database;
@@ -277,7 +276,7 @@ internal sealed class MessageHandler
             .ToList();
 
         var userIds = controversialPosts.Select(x => x.Post.PosterId).Distinct().ToList();
-        var userIdToUser = await GetTelegramUsers(chat, userIds);
+        var userIdToUser = await TelegramHelper.GetTelegramUsers(chat, userIds, _botClient);
 
         var message = new StringBuilder(1024);
         message.Append("Топ противоречивых постов за ");
@@ -344,7 +343,7 @@ internal sealed class MessageHandler
             .ToList();
 
         var userIds = topAuthors.Select(x => x.PosterId).ToList();
-        var userIdToUser = await GetTelegramUsers(chat, userIds);
+        var userIdToUser = await TelegramHelper.GetTelegramUsers(chat, userIds.ToArray(), _botClient);
 
         var message = new StringBuilder(1024);
         message.Append("Топ авторов за ");
@@ -400,7 +399,7 @@ internal sealed class MessageHandler
             .ToList();
 
         var userIds = topPosts.Select(x => x.Post.PosterId).Distinct().ToList();
-        var userIdToUser = await GetTelegramUsers(chat, userIds);
+        var userIdToUser = await TelegramHelper.GetTelegramUsers(chat, userIds, _botClient);
 
         var message = new StringBuilder(1024);
         message.Append("Топ постов за ");
@@ -435,36 +434,6 @@ internal sealed class MessageHandler
         }
 
         ReplyAndDeleteLater(update.Message, message.ToString(), ParseMode.MarkdownV2);
-    }
-
-    private async Task<Dictionary<long, User>> GetTelegramUsers(Chat chat, ICollection<long> userIds)
-    {
-        var userIdToUser = new Dictionary<long, User>(userIds.Count);
-        foreach (var id in userIds)
-        {
-            if (MemoryCache.Default.Get(id.ToString()) is User fromCache)
-            {
-                userIdToUser[id] = fromCache;
-                continue;
-            }
-
-            try
-            {
-                var member = await _botClient.GetChatMemberAsync(chat.Id, id);
-                userIdToUser[id] = member.User;
-                MemoryCache.Default.Add(
-                    id.ToString(),
-                    member,
-                    new CacheItemPolicy { SlidingExpiration = TimeSpan.FromHours(1) }
-                );
-            }
-            catch (ApiRequestException)
-            {
-                // User not found for any reason, we don't care.
-            }
-        }
-
-        return userIdToUser;
     }
 
     private void ReplyAndDeleteLater(Message message, string text, ParseMode? parseMode = null)
@@ -599,6 +568,7 @@ internal sealed class MessageHandler
         if (DateTime.UtcNow.AddMinutes(-5) > post.Timestamp && dislikes > 2 * likes + 3)
         {
             _logger.LogInformation("Deleting post. Dislikes = {Dislikes}, Likes = {Likes}", dislikes, likes);
+            await DeleteMediaGroupIfNeeded(msg, post);
             await _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
             _sqliteDb.Interactions.Delete(i => i.PostId == post.Id);
             _sqliteDb.Posts.Delete(p => p.Id == post.Id);
@@ -629,6 +599,21 @@ internal sealed class MessageHandler
         {
             _logger.LogError(ex, "EditMessageReplyMarkupAsync");
         }
+    }
+
+    private async Task DeleteMediaGroupIfNeeded(Message msg, Post post)
+    {
+        if (post.ReplyMessageId == null)
+            return;
+        for (var i = post.ReplyMessageId.Value; i < msg.MessageId; i++)
+            try
+            {
+                await _botClient.DeleteMessageAsync(msg.Chat.Id, (int)i);
+            }
+            catch (Exception e)
+            {
+                _logger.LogWarning(e, "Unable to delete a message in media group");
+            }
     }
 
     private async Task HandleGalleryDl(Update update, Uri link)
@@ -801,7 +786,7 @@ internal sealed class MessageHandler
         InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
     }
 
-    private void InsertIntoPosts(long chatId, long posterId, long messageId)
+    private void InsertIntoPosts(long chatId, long posterId, long messageId, long? replyToMessageId = null)
     {
         _sqliteDb.Insert(
             new Post
@@ -809,7 +794,8 @@ internal sealed class MessageHandler
                 ChatId = chatId,
                 PosterId = posterId,
                 MessageId = messageId,
-                Timestamp = DateTime.UtcNow
+                Timestamp = DateTime.UtcNow,
+                ReplyMessageId = replyToMessageId
             }
         );
     }
@@ -853,7 +839,7 @@ internal sealed class MessageHandler
                 replyToMessageId: msg.MessageId,
                 replyMarkup: _newPostIkm
             );
-            InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+            InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId, msg.MessageId);
         }
         catch (Exception ex)
         {
