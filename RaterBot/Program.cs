@@ -16,6 +16,7 @@ var host = Host.CreateDefaultBuilder(args)
                 hostContext.Configuration.GetConnectionString("Sqlite")
                 ?? throw new ArgumentNullException("Sqlite config section is null");
             services.AddHostedService<Worker>();
+            services.AddHostedService<TopPostDayService>();
             services.AddScoped<MessageHandler>();
             services.AddSingleton<ITelegramBotClient>(
                 _ =>
@@ -31,7 +32,8 @@ var host = Host.CreateDefaultBuilder(args)
                         rb.AddSQLite()
                             .WithGlobalConnectionString(connStr)
                             .ScanIn(typeof(Init).Assembly)
-                            .For.Migrations()
+                            .For
+                            .Migrations()
                 )
                 .AddLogging(lb => lb.AddFluentMigratorConsole())
                 .BuildServiceProvider(false);

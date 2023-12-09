@@ -1,6 +1,6 @@
-﻿using LinqToDB.Data;
+﻿using System.Text.RegularExpressions;
+using LinqToDB.Data;
 using RaterBot.Database;
-using System.Text.RegularExpressions;
 using Telegram.Bot;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
@@ -53,11 +53,11 @@ namespace RaterBot
                 cancellationToken: stoppingToken
             );
 
+            string? mediaGroupId = null;
             var offset = 0;
             while (!stoppingToken.IsCancellationRequested)
                 try
                 {
-                    string? mediaGroupId = null;
                     var updates = await _botClient.GetUpdatesAsync(
                         offset,
                         100,
