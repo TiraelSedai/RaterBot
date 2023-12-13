@@ -131,7 +131,7 @@ internal sealed class MessageHandler
                 }
 
                 if (
-                    msg.Type is MessageType.Photo or MessageType.Video
+                    msg.Type is MessageType.Photo or MessageType.Video or MessageType.Animation
                     || (
                         msg.Type == MessageType.Document
                         && msg.Document?.MimeType != null
@@ -202,7 +202,8 @@ internal sealed class MessageHandler
             ReplyAndDeleteLater(msg, "Эту команду нужно вызывать реплаем на сообщение бота");
             return;
         }
-        var post = _sqliteDb.Posts
+        var post = _sqliteDb
+            .Posts
             .Where(p => p.ChatId == msg.Chat.Id && p.MessageId == msg.ReplyToMessage.MessageId)
             .FirstOrDefault();
         if (post == null)
@@ -242,7 +243,8 @@ internal sealed class MessageHandler
             return;
         }
 
-        var posts = _sqliteDb.Posts
+        var posts = _sqliteDb
+            .Posts
             .Where(p => p.ChatId == chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
             .LoadWith(p => p.Interactions)
             .ToList();
@@ -299,7 +301,8 @@ internal sealed class MessageHandler
     {
         Debug.Assert(update.Message != null);
         var chat = update.Message.Chat;
-        var posts = _sqliteDb.Posts
+        var posts = _sqliteDb
+            .Posts
             .Where(p => p.ChatId == update.Message.Chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
             .LoadWith(p => p.Interactions)
             .ToList();
@@ -368,7 +371,8 @@ internal sealed class MessageHandler
             return;
         }
 
-        var posts = _sqliteDb.Posts
+        var posts = _sqliteDb
+            .Posts
             .Where(p => p.ChatId == chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
             .LoadWith(p => p.Interactions)
             .ToList();
@@ -490,7 +494,8 @@ internal sealed class MessageHandler
         }
 
         _logger.LogDebug("Valid callback request");
-        var post = _sqliteDb.Posts
+        var post = _sqliteDb
+            .Posts
             .Where(p => p.ChatId == msg.Chat.Id && p.MessageId == msg.MessageId)
             .LoadWith(p => p.Interactions)
             .SingleOrDefault();
