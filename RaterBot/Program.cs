@@ -25,6 +25,7 @@ var host = Host.CreateDefaultBuilder(args)
                             ?? throw new Exception("TELEGRAM_MEDIA_RATER_BOT_API environment variable not set")
                     )
             );
+            services.AddSingleton<RaterBot.Polly>();
             services
                 .AddFluentMigratorCore()
                 .ConfigureRunner(
