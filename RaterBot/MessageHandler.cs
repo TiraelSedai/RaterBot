@@ -120,9 +120,11 @@ internal sealed class MessageHandler
                             await HandleYtDlp(update, url!, type);
                             return;
                         case UrlType.Reddit:
-                        case UrlType.Twitter:
                         case UrlType.Instagram:
                             await HandleGalleryDl(update, url!);
+                            break;
+                        case UrlType.Twitter:
+                            await HandleTwitter(update, url!);
                             break;
                         case UrlType.NotFound:
                         default:
@@ -157,6 +159,21 @@ internal sealed class MessageHandler
             _logger.LogError(ex, $"General update exception inside {nameof(HandleUpdate)}");
             await Task.Delay(TimeSpan.FromSeconds(1));
         }
+    }
+
+    private async Task HandleTwitter(Update update, Uri uri)
+    {
+        var msg = update.Message!;
+        var from = msg.From!;
+        var newUri = $"https://fxtwitter.com{uri.LocalPath}";
+
+        var newMessage = await _botClient.SendTextMessageAsync(
+            msg.Chat.Id,
+            $"{AtMentionUsername(from)}:{Environment.NewLine}{newUri}",
+            replyMarkup: TelegramHelper.NewPostIkm
+        );
+
+        InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
     }
 
     private static (UrlType, Uri?) FindSupportedSiteLink(Message msg)
