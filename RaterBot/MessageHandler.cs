@@ -174,6 +174,7 @@ internal sealed class MessageHandler
         );
 
         InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+        await _botClient.DeleteMessageAsync(msg.Chat, msg.MessageId);
     }
 
     private static (UrlType, Uri?) FindSupportedSiteLink(Message msg)
