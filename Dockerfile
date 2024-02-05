@@ -8,7 +8,8 @@ WORKDIR "/src/RaterBot"
 RUN dotnet publish "RaterBot.csproj" -c Release -o /app/publish --runtime linux-x64 --self-contained true
 
 FROM mcr.microsoft.com/dotnet/runtime-deps:8.0
-RUN apt update && apt install -y yt-dlp ffmpeg python3 gallery-dl && apt clean && apt autoremove
+RUN apt update && apt install -y apt-transport-https
+RUN apt install -y yt-dlp ffmpeg python3 gallery-dl && apt clean && apt autoremove
 WORKDIR /app
 COPY --from=build /app/publish .
 ENTRYPOINT ["./RaterBot"]
