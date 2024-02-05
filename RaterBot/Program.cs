@@ -54,11 +54,10 @@ using (var scope = host.Services.CreateScope())
 
     using (var dbc = scope.ServiceProvider.GetRequiredService<SqliteDb>())
     {
-        dbc.Execute("PRAGMA foreign_keys = ON;");
         dbc.Execute("PRAGMA journal_mode = WAL;");
+        dbc.Execute("PRAGMA foreign_keys = ON;");
         dbc.Execute("PRAGMA synchronous = NORMAL;");
         dbc.Execute("PRAGMA temp_store = memory;");
-        dbc.Execute("VACUUM;");
     }
 
     var migrationRunner = scope.ServiceProvider.GetRequiredService<IMigrationRunner>();

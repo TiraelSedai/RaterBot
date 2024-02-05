@@ -120,7 +120,7 @@ internal sealed class MessageHandler
                             await HandleYtDlp(update, url!, type);
                             return;
                         case UrlType.Reddit:
-                        case UrlType.Instagram:
+                            //case UrlType.Instagram:
                             await HandleGalleryDl(update, url!);
                             break;
                         case UrlType.Twitter:

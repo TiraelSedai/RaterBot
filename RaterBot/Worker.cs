@@ -24,8 +24,7 @@ namespace RaterBot
         {
             var me = await _botClient.GetMeAsync(cancellationToken: stoppingToken);
             await _botClient.SetMyCommandsAsync(
-                new[]
-                {
+                [
                     new BotCommand
                     {
                         Command = "text",
@@ -49,23 +48,24 @@ namespace RaterBot
                         Description =
                             "или #ignore, или /skip, или #skip - добавь к видео или фото, чтобы бот не преобразовывал его"
                     }
-                },
+                ],
                 cancellationToken: stoppingToken
             );
 
             string? mediaGroupId = null;
             var offset = 0;
             while (!stoppingToken.IsCancellationRequested)
+            {
                 try
                 {
                     var updates = await _botClient.GetUpdatesAsync(
                         offset,
                         100,
-                        60,
-                        allowedUpdates: new[] { UpdateType.CallbackQuery, UpdateType.Message },
+                        300,
+                        allowedUpdates: [UpdateType.CallbackQuery, UpdateType.Message],
                         cancellationToken: stoppingToken
                     );
-                    if (!updates.Any())
+                    if (updates.Length == 0)
                     {
                         using var scope = _serviceProvider.CreateScope();
                         using var dbc = scope.ServiceProvider.GetRequiredService<SqliteDb>();
@@ -93,6 +93,7 @@ namespace RaterBot
                     _logger.LogError(ex, "General update exception");
                     await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
                 }
+            }
         }
 
         private async Task ProcessInBackground(User me, Update update)
