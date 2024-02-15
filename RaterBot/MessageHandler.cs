@@ -120,8 +120,10 @@ internal sealed class MessageHandler
                             await HandleYtDlp(update, url!, type);
                             return;
                         case UrlType.Reddit:
-                            //case UrlType.Instagram:
                             await HandleGalleryDl(update, url!);
+                            break;
+                        case UrlType.Instagram:
+                            await HandleInstagram(update, url!);
                             break;
                         case UrlType.Twitter:
                             await HandleTwitter(update, url!);
@@ -159,6 +161,22 @@ internal sealed class MessageHandler
             _logger.LogError(ex, $"General update exception inside {nameof(HandleUpdate)}");
             await Task.Delay(TimeSpan.FromSeconds(1));
         }
+    }
+
+    private async Task HandleInstagram(Update update, Uri uri)
+    {
+        var msg = update.Message!;
+        var from = msg.From!;
+        var newUri = $"https://ddinstagram.com{uri.LocalPath}";
+
+        var newMessage = await _botClient.SendTextMessageAsync(
+            msg.Chat.Id,
+            $"{AtMentionUsername(from)}:{Environment.NewLine}{newUri}",
+            replyMarkup: TelegramHelper.NewPostIkm
+        );
+
+        InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+        await _botClient.DeleteMessageAsync(msg.Chat, msg.MessageId);
     }
 
     private async Task HandleTwitter(Update update, Uri uri)
