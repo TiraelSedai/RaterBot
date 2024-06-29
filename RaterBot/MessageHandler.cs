@@ -15,12 +15,19 @@ internal sealed class MessageHandler
     private readonly SqliteDb _sqliteDb;
     private readonly ITelegramBotClient _botClient;
     private readonly ILogger<MessageHandler> _logger;
+    private readonly DeduplicationService _deduplicationService;
 
-    public MessageHandler(ITelegramBotClient botClient, SqliteDb sqliteDb, ILogger<MessageHandler> logger)
+    public MessageHandler(
+        ITelegramBotClient botClient,
+        SqliteDb sqliteDb,
+        ILogger<MessageHandler> logger,
+        DeduplicationService deduplicationService
+    )
     {
         _sqliteDb = sqliteDb;
         _botClient = botClient;
         _logger = logger;
+        _deduplicationService = deduplicationService;
     }
 
     public async Task HandleUpdate(User me, Update update)
@@ -91,18 +98,20 @@ internal sealed class MessageHandler
                     {
                         if (msg.ReplyToMessage?.From?.Id == me.Id)
                         {
-                            ReplyAndDeleteLater(
+                            _botClient.ReplyAndDeleteLater(
                                 msg,
-                                "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку не от бота"
+                                "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку не от бота",
+                                _logger
                             );
                             return;
                         }
 
                         if (string.IsNullOrWhiteSpace(msg.ReplyToMessage?.Text))
                         {
-                            ReplyAndDeleteLater(
+                            _botClient.ReplyAndDeleteLater(
                                 msg,
-                                "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку"
+                                "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку",
+                                _logger
                             );
                             return;
                         }
@@ -229,33 +238,30 @@ internal sealed class MessageHandler
         Debug.Assert(msg != null);
         if (msg.ReplyToMessage == null)
         {
-            ReplyAndDeleteLater(msg, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку");
+            _botClient.ReplyAndDeleteLater(msg, "Эту команду нужно вызывать реплаем на текстовое сообщение или ссылку", _logger);
             return;
         }
         Debug.Assert(msg.ReplyToMessage.From != null);
         if (msg.ReplyToMessage.From.Id != bot.Id)
         {
-            ReplyAndDeleteLater(msg, "Эту команду нужно вызывать реплаем на сообщение бота");
+            _botClient.ReplyAndDeleteLater(msg, "Эту команду нужно вызывать реплаем на сообщение бота", _logger);
             return;
         }
-        var post = _sqliteDb
-            .Posts
-            .Where(p => p.ChatId == msg.Chat.Id && p.MessageId == msg.ReplyToMessage.MessageId)
-            .FirstOrDefault();
+        var post = _sqliteDb.Posts.FirstOrDefault(p => p.ChatId == msg.Chat.Id && p.MessageId == msg.ReplyToMessage.MessageId);
         if (post == null)
         {
-            ReplyAndDeleteLater(msg, "Это сообщение нельзя удалить");
+            _botClient.ReplyAndDeleteLater(msg, "Это сообщение нельзя удалить", _logger);
             return;
         }
         Debug.Assert(msg.From != null);
         if (post.PosterId != msg.From.Id)
         {
-            ReplyAndDeleteLater(msg, "Нельзя удалить чужой пост");
+            _botClient.ReplyAndDeleteLater(msg, "Нельзя удалить чужой пост", _logger);
             return;
         }
         if (post.Timestamp + TimeSpan.FromHours(1) < DateTime.UtcNow)
         {
-            ReplyAndDeleteLater(msg, "Этот пост слишком старый, чтобы его удалять");
+            _botClient.ReplyAndDeleteLater(msg, "Этот пост слишком старый, чтобы его удалять", _logger);
             return;
         }
         await _botClient.DeleteMessageAsync(msg.Chat.Id, msg.ReplyToMessage.MessageId);
@@ -322,15 +328,13 @@ internal sealed class MessageHandler
             else
                 message.Append("покинувшего чат пользователя](");
 
-            var link = sg
-                ? LinkToSuperGroupMessage(chat, item.Post.MessageId)
-                : LinkToGroupWithNameMessage(chat, item.Post.MessageId);
+            var link = TelegramHelper.LinkToMessage(chat, item.Post.MessageId);
             message.Append(link);
             message.Append(")");
             i++;
         }
 
-        ReplyAndDeleteLater(update.Message, message.ToString(), ParseMode.MarkdownV2);
+        _botClient.ReplyAndDeleteLater(update.Message, message.ToString(), _logger, ParseMode.MarkdownV2);
     }
 
     private async Task HandleTopAuthors(Update update, Period period)
@@ -359,9 +363,7 @@ internal sealed class MessageHandler
                     {
                         PosterId = g.Key,
                         Likes = g.Sum(x => x.Likes),
-                        HirschIndex = g.OrderByDescending(x => x.Likes)
-                            .TakeWhile((x, iter) => x.Likes >= iter + 1)
-                            .Count()
+                        HirschIndex = g.OrderByDescending(x => x.Likes).TakeWhile((x, iter) => x.Likes >= iter + 1).Count()
                     }
             )
             .OrderByDescending(x => x.HirschIndex)
@@ -389,7 +391,7 @@ internal sealed class MessageHandler
             i++;
         }
 
-        ReplyAndDeleteLater(update.Message, message.ToString());
+        _botClient.ReplyAndDeleteLater(update.Message, message.ToString(), _logger);
     }
 
     private async Task HandleTopPosts(Update update, Period period)
@@ -435,7 +437,6 @@ internal sealed class MessageHandler
         message.Append(':');
         message.Append(Environment.NewLine);
         var i = 0;
-        var sg = chat.Type == ChatType.Supergroup;
         foreach (var item in topPosts)
         {
             if (item.Likes <= 0)
@@ -450,9 +451,7 @@ internal sealed class MessageHandler
             else
                 message.Append("покинувшего чат пользователя](");
 
-            var link = sg
-                ? LinkToSuperGroupMessage(chat, item.Post.MessageId)
-                : LinkToGroupWithNameMessage(chat, item.Post.MessageId);
+            var link = TelegramHelper.LinkToMessage(chat, item.Post.MessageId);
             message.Append(link);
             message.Append(") ");
             if (item.Likes > 0)
@@ -461,31 +460,7 @@ internal sealed class MessageHandler
             i++;
         }
 
-        ReplyAndDeleteLater(update.Message, message.ToString(), ParseMode.MarkdownV2);
-    }
-
-    private void ReplyAndDeleteLater(Message message, string text, ParseMode? parseMode = null)
-    {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                var m = await _botClient.SendTextMessageAsync(
-                    message.Chat.Id,
-                    text,
-                    replyToMessageId: message.MessageId,
-                    disableNotification: true,
-                    parseMode: parseMode
-                );
-                await Task.Delay(TimeSpan.FromMinutes(10));
-                await _botClient.DeleteMessageAsync(message.Chat.Id, m.MessageId);
-            }
-            catch (ApiRequestException are)
-            {
-                _logger.LogError(are, "Unable to send {Text} with parseMode = {ParseMode}", text, parseMode);
-            }
-            await _botClient.DeleteMessageAsync(message.Chat.Id, message.MessageId);
-        });
+        _botClient.ReplyAndDeleteLater(update.Message, message.ToString(), _logger, ParseMode.MarkdownV2);
     }
 
     private static bool IsBotCommand(string username, string? msgText, string command) =>
@@ -510,12 +485,6 @@ internal sealed class MessageHandler
         }
     }
 
-    private static string LinkToSuperGroupMessage(Chat chat, long messageId) =>
-        $"https://t.me/c/{chat.Id.ToString()[4..]}/{messageId}";
-
-    private static string LinkToGroupWithNameMessage(Chat chat, long messageId) =>
-        $"https://t.me/{chat.Username}/{messageId}";
-
     private async Task HandleCallbackData(Update update)
     {
         Debug.Assert(update.CallbackQuery != null);
@@ -537,11 +506,7 @@ internal sealed class MessageHandler
             .SingleOrDefault();
         if (post == null)
         {
-            _logger.LogError(
-                "Cannot find post in the database, ChatId = {ChatId}, MessageId = {MessageId}",
-                msg.Chat.Id,
-                msg.MessageId
-            );
+            _logger.LogError("Cannot find post in the database, ChatId = {ChatId}, MessageId = {MessageId}", msg.Chat.Id, msg.MessageId);
             try
             {
                 await _botClient.EditMessageReplyMarkupAsync(msg.Chat.Id, msg.MessageId, InlineKeyboardMarkup.Empty());
@@ -569,10 +534,7 @@ internal sealed class MessageHandler
             if (newReaction == interaction.Reaction)
             {
                 var reaction = newReaction ? "👍" : "👎";
-                await _botClient.AnswerCallbackQueryAsync(
-                    update.CallbackQuery.Id,
-                    $"Ты уже поставил(-а) {reaction} этому посту"
-                );
+                await _botClient.AnswerCallbackQueryAsync(update.CallbackQuery.Id, $"Ты уже поставил(-а) {reaction} этому посту");
                 _logger.LogInformation("No need to update reaction");
                 return;
             }
@@ -601,10 +563,7 @@ internal sealed class MessageHandler
             await _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
             _sqliteDb.Interactions.Delete(i => i.PostId == post.Id);
             _sqliteDb.Posts.Delete(p => p.Id == post.Id);
-            await _botClient.AnswerCallbackQueryAsync(
-                update.CallbackQuery.Id,
-                "Твой голос стал решающей каплей, этот пост удалён"
-            );
+            await _botClient.AnswerCallbackQueryAsync(update.CallbackQuery.Id, "Твой голос стал решающей каплей, этот пост удалён");
             return;
         }
 
@@ -656,11 +615,7 @@ internal sealed class MessageHandler
         var msgText = msg.Text;
         Debug.Assert(msgText != null);
 
-        var processingMsg = await _botClient.SendTextMessageAsync(
-            msg.Chat.Id,
-            "Processing...",
-            replyToMessageId: msg.MessageId
-        );
+        var processingMsg = await _botClient.SendTextMessageAsync(msg.Chat.Id, "Processing...", replyToMessageId: msg.MessageId);
 
         var disposeMe = Array.Empty<Stream>();
         try
@@ -746,11 +701,7 @@ internal sealed class MessageHandler
         var msgText = msg.Text;
         Debug.Assert(msgText != null);
 
-        var processingMsg = await _botClient.SendTextMessageAsync(
-            msg.Chat.Id,
-            "Processing...",
-            replyToMessageId: msg.MessageId
-        );
+        var processingMsg = await _botClient.SendTextMessageAsync(msg.Chat.Id, "Processing...", replyToMessageId: msg.MessageId);
 
         try
         {
@@ -846,6 +797,9 @@ internal sealed class MessageHandler
             );
             InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.Id);
             await _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
+            var photoFileId = msg.Photo?.FirstOrDefault()?.FileId;
+            if (photoFileId != null)
+                _deduplicationService.Process(photoFileId, msg.Chat, newMessage);
         }
         catch (Exception ex)
         {

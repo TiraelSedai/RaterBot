@@ -1,9 +1,10 @@
 ﻿using System.Runtime.Caching;
+using System.Text;
+using Telegram.Bot;
 using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
-using Telegram.Bot;
+using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
-using System.Text;
 
 namespace RaterBot
 {
@@ -28,11 +29,7 @@ namespace RaterBot
                 {
                     var member = await telegramBotClient.GetChatMemberAsync(chat.Id, id);
                     userIdToUser[id] = member.User;
-                    MemoryCache.Default.Add(
-                        id.ToString(),
-                        member,
-                        new CacheItemPolicy { SlidingExpiration = TimeSpan.FromHours(1) }
-                    );
+                    MemoryCache.Default.Add(id.ToString(), member, new CacheItemPolicy { SlidingExpiration = TimeSpan.FromHours(1) });
                 }
                 catch (ApiRequestException)
                 {
@@ -42,6 +39,14 @@ namespace RaterBot
 
             return userIdToUser;
         }
+
+        public static string LinkToMessage(Chat chat, long messageId) =>
+            chat.Type == ChatType.Supergroup ? LinkToSuperGroupMessage(chat, messageId) : LinkToGroupWithNameMessage(chat, messageId);
+
+        private static string LinkToSuperGroupMessage(Chat chat, long messageId) => $"https://t.me/c/{chat.Id.ToString()[4..]}/{messageId}";
+
+        private static string LinkToGroupWithNameMessage(Chat chat, long messageId) =>
+            chat.Username != null ? $"https://t.me/{chat.Username}/{messageId}" : "";
 
         public static readonly InlineKeyboardMarkup NewPostIkm =
             new(
@@ -82,6 +87,26 @@ namespace RaterBot
         }
 
         private static readonly char[] _shouldBeEscaped =
-            [ '\\', '_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!' ];
+        [
+            '\\',
+            '_',
+            '*',
+            '[',
+            ']',
+            '(',
+            ')',
+            '~',
+            '`',
+            '>',
+            '#',
+            '+',
+            '-',
+            '=',
+            '|',
+            '{',
+            '}',
+            '.',
+            '!'
+        ];
     }
 }

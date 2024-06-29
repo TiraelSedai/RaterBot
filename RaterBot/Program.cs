@@ -26,6 +26,7 @@ var host = Host.CreateDefaultBuilder(args)
                     )
             );
             services.AddSingleton<RaterBot.Polly>();
+            services.AddSingleton<DeduplicationService>();
             services
                 .AddFluentMigratorCore()
                 .ConfigureRunner(
