@@ -1,4 +1,3 @@
-using System.IO.Pipelines;
 using System.Text.Json;
 using System.Threading.Channels;
 using CoenM.ImageHash;
@@ -84,26 +83,20 @@ internal sealed class DeduplicationService
     private async Task<ulong> CalculateAndWriteHash(WorkItem item)
     {
         _logger.LogDebug(nameof(CalculateAndWriteHash));
-        var pipe = new Pipe();
-        var fileTask = _bot.GetInfoAndDownloadFileAsync(item.PhotoFileId, pipe.Writer.AsStream());
-        try
-        {
-            using var image = await Image.LoadAsync<Rgba32>(pipe.Reader.AsStream());
-            await fileTask;
-            _logger.LogDebug("Image downloaded");
-            var hash = _hashAlgo.Hash(image);
-            var imageHash = JsonSerializer.Serialize(new ImageHash(hash), SourceGenerationContext.Default.ImageHash);
-            await _sqliteDb
-                .Posts
-                .Where(x => x.ChatId == item.Chat.Id && x.MessageId == item.MessageId.Id)
-                .Set(x => x.MediaHash, imageHash)
-                .UpdateAsync();
-            _logger.LogDebug("New image hash written to database");
-            return hash;
-        }
-        finally
-        {
-            await pipe.Writer.CompleteAsync();
-        }
+        using var ms = new MemoryStream();
+        await _bot.GetInfoAndDownloadFileAsync(item.PhotoFileId, ms);
+        _logger.LogDebug("Image download ok");
+        ms.Seek(0, SeekOrigin.Begin);
+        using var image = Image.Load<Rgba32>(ms);
+        _logger.LogDebug("Image read ok");
+        var hash = _hashAlgo.Hash(image);
+        var imageHash = JsonSerializer.Serialize(new ImageHash(hash), SourceGenerationContext.Default.ImageHash);
+        await _sqliteDb
+            .Posts
+            .Where(x => x.ChatId == item.Chat.Id && x.MessageId == item.MessageId.Id)
+            .Set(x => x.MediaHash, imageHash)
+            .UpdateAsync();
+        _logger.LogDebug("New image hash written to database");
+        return hash;
     }
 }

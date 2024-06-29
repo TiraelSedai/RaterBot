@@ -800,8 +800,6 @@ internal sealed class MessageHandler
             var photoFileId = msg.Photo?.FirstOrDefault()?.FileId;
             if (photoFileId != null)
                 _deduplicationService.Process(photoFileId, msg.Chat, newMessage);
-            else
-                _logger.LogDebug("Not a photo or FileId is null");
         }
         catch (Exception ex)
         {
