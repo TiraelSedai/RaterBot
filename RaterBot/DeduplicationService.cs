@@ -75,7 +75,7 @@ internal sealed class DeduplicationService
             if (similarityPercent < SimilarityThreshold)
                 continue;
             _logger.LogInformation("Found possible duplicate");
-            var linkToMessage = TelegramHelper.LinkToMessage(item.Chat, item.MessageId.Id);
+            var linkToMessage = TelegramHelper.LinkToMessage(item.Chat, candidate.MessageId);
             _bot.TemporaryReply(item.Chat.Id, item.MessageId, $"Уже было? {linkToMessage}");
             break;
         }
