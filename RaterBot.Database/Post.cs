@@ -23,6 +23,7 @@ namespace RaterBot.Database
 		[Column("MessageId"                                                                                       )] public long     MessageId      { get; set; } // integer
 		[Column("Timestamp"                                                                                       )] public DateTime Timestamp      { get; set; } // datetime
 		[Column("ReplyMessageId"                                                                                  )] public long?    ReplyMessageId { get; set; } // integer
+		[Column("MediaHash"                                                                                       )] public string?  MediaHash      { get; set; } // text(max)
 
 		#region Associations
 		/// <summary>
