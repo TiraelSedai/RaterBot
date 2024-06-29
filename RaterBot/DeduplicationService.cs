@@ -77,6 +77,7 @@ internal sealed class DeduplicationService
             _logger.LogInformation("Found possible duplicate");
             var linkToMessage = TelegramHelper.LinkToMessage(item.Chat, item.MessageId.Id);
             _bot.TemporaryReply(item.Chat.Id, item.MessageId, $"Уже было? {linkToMessage}");
+            break;
         }
     }
 
