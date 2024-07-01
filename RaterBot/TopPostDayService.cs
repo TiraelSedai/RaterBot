@@ -1,6 +1,7 @@
 ﻿using LinqToDB;
 using RaterBot.Database;
 using Telegram.Bot;
+using Telegram.Bot.Exceptions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
 
@@ -38,24 +39,20 @@ namespace RaterBot
             }
         }
 
-        private const string topOfTheDay = "#TopOfTheDay";
+        private const string TopOfTheDayHashTag = "#TopOfTheDay";
 
         private async Task Tick(SqliteDb db)
         {
             var now = DateTime.UtcNow;
             var activeWindow = TimeSpan.FromDays(2);
             var day = TimeSpan.FromDays(1);
-            var activeChats = db.Posts
-                .Where(x => x.Timestamp > now - activeWindow)
-                .Select(x => x.ChatId)
-                .Distinct()
-                .ToList();
+            var activeChats = db.Posts.Where(x => x.Timestamp > now - activeWindow).Select(x => x.ChatId).Distinct().ToList();
 
             foreach (var chatId in activeChats.OrderBy(x => Random.Shared.Next()))
                 await HandleOneChat(db, now, day, chatId);
         }
 
-        private readonly TimeSpan Delay = TimeSpan.FromSeconds(5);
+        private readonly TimeSpan _delay = TimeSpan.FromSeconds(5);
 
         private async Task HandleOneChat(SqliteDb db, DateTime now, TimeSpan day, long chatId)
         {
@@ -72,7 +69,7 @@ namespace RaterBot
         private async Task HandleOneChatCore(SqliteDb db, DateTime now, TimeSpan day, long chatId)
         {
             var chat = await _botClient.GetChatAsync(chatId);
-            _logger.LogDebug($"Chat {chat.Title}");
+            _logger.LogDebug("Chat {Title}", chat.Title);
             var topPosts = db.Posts
                 .Where(x => x.ChatId == chatId && x.Timestamp > now - day)
                 .OrderByDescending(x => x.Interactions.Select(x => x.Reaction ? 1 : -1).Sum())
@@ -89,11 +86,7 @@ namespace RaterBot
                 .LoadWith(x => x.Interactions)
                 .ToList();
 
-            var interestingUsers = topPosts
-                .Select(x => x.PosterId)
-                .Concat(previousTopPostsDb.Select(x => x.PosterId))
-                .Distinct()
-                .ToList();
+            var interestingUsers = topPosts.Select(x => x.PosterId).Concat(previousTopPostsDb.Select(x => x.PosterId)).Distinct().ToList();
             var userIdToUser = await TelegramHelper.GetTelegramUsers(chat, interestingUsers, _botClient);
 
             var noLongerTop = previousTop.Where(x => !topPosts.Select(x => x.MessageId).Contains(x.PostId));
@@ -101,14 +94,14 @@ namespace RaterBot
             foreach (var post in noLongerTop)
             {
                 await NoLongerTopPost(db, chatId, previousTopPostsDb, userIdToUser, post);
-                await Task.Delay(Delay);
+                await Task.Delay(_delay);
             }
 
             var newTop = topPosts.Where(x => !previousTop.Select(x => x.Id).Contains(x.MessageId));
             foreach (var post in newTop)
             {
                 await NewTopPost(db, chatId, userIdToUser, post);
-                await Task.Delay(Delay);
+                await Task.Delay(_delay);
             }
         }
 
@@ -126,7 +119,7 @@ namespace RaterBot
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Exception during noLongerTop iteration");
+                _logger.LogWarning(ex, "Exception during noLongerTop iteration, chatId {ChatId} postId {PostId}", post.ChatId, post.PostId);
             }
         }
 
@@ -138,61 +131,71 @@ namespace RaterBot
             TopPostsDay post
         )
         {
-            var prevTopDb = previousTopDb.SingleOrDefault(x => x.MessageId == post.PostId);
-            var caption = prevTopDb?.ReplyMessageId == null;
-            var ikm = ConstructReplyMarkup(prevTopDb);
-
-            if (caption)
+            try
             {
-                var userOk = false;
-                User? user = null;
-                if (prevTopDb != null)
-                    userOk = userIdToUser.TryGetValue(prevTopDb.PosterId, out user);
-                if (userOk)
+                var prevTopDb = previousTopDb.SingleOrDefault(x => x.MessageId == post.PostId);
+                var caption = prevTopDb?.ReplyMessageId == null;
+                var ikm = ConstructReplyMarkup(prevTopDb);
+
+                if (caption)
                 {
-                    await _polly
-                        .MessageEdit
-                        .ExecuteAsync(
-                            async (ct) =>
-                                await _botClient.EditMessageCaptionAsync(
-                                    chatId,
-                                    (int)post.PostId,
-                                    TelegramHelper.MentionUsername(user!),
-                                    parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2,
-                                    replyMarkup: ikm
-                                )
-                        );
+                    var userOk = false;
+                    User? user = null;
+                    if (prevTopDb != null)
+                        userOk = userIdToUser.TryGetValue(prevTopDb.PosterId, out user);
+                    if (userOk)
+                    {
+                        await _polly
+                            .MessageEdit
+                            .ExecuteAsync(
+                                async (ct) =>
+                                    await _botClient.EditMessageCaptionAsync(
+                                        chatId,
+                                        (int)post.PostId,
+                                        TelegramHelper.MentionUsername(user!),
+                                        parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2,
+                                        replyMarkup: ikm,
+                                        cancellationToken: ct
+                                    )
+                            );
+                    }
+                    else
+                    {
+                        if (prevTopDb == null)
+                            db.TopPostsDays.Delete(x => x.Id == post.Id);
+                        await _polly
+                            .MessageEdit
+                            .ExecuteAsync(
+                                async (ct) =>
+                                    await _botClient.EditMessageCaptionAsync(
+                                        chatId,
+                                        (int)post.PostId,
+                                        "От покинувшего чат пользователя",
+                                        replyMarkup: ikm,
+                                        cancellationToken: ct
+                                    )
+                            );
+                    }
                 }
                 else
                 {
-                    if (prevTopDb == null)
-                        db.TopPostsDays.Delete(x => x.Id == post.Id);
                     await _polly
                         .MessageEdit
                         .ExecuteAsync(
                             async (ct) =>
-                                await _botClient.EditMessageCaptionAsync(
+                                await _botClient.EditMessageTextAsync(
                                     chatId,
                                     (int)post.PostId,
-                                    "От покинувшего чат пользователя",
-                                    replyMarkup: ikm
+                                    "Оценить альбом",
+                                    replyMarkup: ikm,
+                                    cancellationToken: ct
                                 )
                         );
                 }
             }
-            else
+            catch (ApiRequestException e) when (e.Message.Contains("message to edit not found"))
             {
-                await _polly
-                    .MessageEdit
-                    .ExecuteAsync(
-                        async (ct) =>
-                            await _botClient.EditMessageTextAsync(
-                                chatId,
-                                (int)post.PostId,
-                                "Оценить альбом",
-                                replyMarkup: ikm
-                            )
-                    );
+                _logger.LogInformation("Somebody deleted the message already, just remove from database");
             }
             db.TopPostsDays.Delete(x => x.Id == post.Id);
         }
@@ -224,7 +227,7 @@ namespace RaterBot
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Exception during noLongerTop iteration");
+                _logger.LogWarning(ex, "Exception during NewTopPost iteration");
             }
         }
 
@@ -244,7 +247,7 @@ namespace RaterBot
                                 await _botClient.EditMessageCaptionAsync(
                                     chatId,
                                     (int)post.MessageId,
-                                    $"{TelegramHelper.MentionUsername(user!)}{Environment.NewLine}{Environment.NewLine}\\{topOfTheDay}",
+                                    $"{TelegramHelper.MentionUsername(user!)}{Environment.NewLine}{Environment.NewLine}\\{TopOfTheDayHashTag}",
                                     parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2,
                                     replyMarkup: ikm,
                                     cancellationToken: ct
@@ -260,7 +263,7 @@ namespace RaterBot
                                 await _botClient.EditMessageCaptionAsync(
                                     chatId,
                                     (int)post.MessageId,
-                                    $"От покинувшего чат пользователя{Environment.NewLine}{Environment.NewLine}\\{topOfTheDay}",
+                                    $"От покинувшего чат пользователя{Environment.NewLine}{Environment.NewLine}\\{TopOfTheDayHashTag}",
                                     parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2,
                                     replyMarkup: ikm,
                                     cancellationToken: ct
@@ -277,7 +280,7 @@ namespace RaterBot
                             await _botClient.EditMessageTextAsync(
                                 chatId,
                                 (int)post.MessageId,
-                                $"Оценить альбом{Environment.NewLine}{Environment.NewLine}{topOfTheDay}",
+                                $"Оценить альбом{Environment.NewLine}{Environment.NewLine}{TopOfTheDayHashTag}",
                                 replyMarkup: ikm,
                                 cancellationToken: ct
                             )
