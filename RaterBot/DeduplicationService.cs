@@ -13,7 +13,7 @@ namespace RaterBot;
 
 internal sealed class DeduplicationService
 {
-    private const int SimilarityThreshold = 98;
+    private const int SimilarityThreshold = 95;
 
     private readonly TimeSpan _deduplicationWindow = TimeSpan.FromDays(35);
     private readonly ILogger<DeduplicationService> _logger;
