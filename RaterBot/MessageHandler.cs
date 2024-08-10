@@ -555,7 +555,7 @@ internal sealed class MessageHandler
 
         var likes = interactions.Count(i => i.Reaction);
         var dislikes = interactions.Count - likes;
-        var threshold = 6 // add dependency on the active number of group members
+        var threshold = 6; // add dependency on the active number of group members
 
         if (DateTime.UtcNow.AddMinutes(-5) > post.Timestamp && dislikes > Math.Max(likes, Math.Floor(x - Math.pow(likes, 2) + threshold)))
         {
