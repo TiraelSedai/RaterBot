@@ -555,7 +555,7 @@ internal sealed class MessageHandler
 
         var likes = interactions.Count(i => i.Reaction);
         var dislikes = interactions.Count - likes;
-        var deleting = dislikes > Math.Max(likes, Math.Floor(likes + 6 + likes / 6));
+        var deleting = dislikes > Math.Max(likes, Math.Floor(likes + 6 - likes / 6));
 
         if (DateTime.UtcNow.AddMinutes(-5) > post.Timestamp && deleting)
         {
