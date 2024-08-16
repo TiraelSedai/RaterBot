@@ -556,7 +556,7 @@ internal sealed class MessageHandler
         var likes = interactions.Count(i => i.Reaction);
         var dislikes = interactions.Count - likes;
 
-        if (DateTime.UtcNow.AddMinutes(-5) > post.Timestamp && dislikes > 2 * likes + 3)
+        if (DateTime.UtcNow.AddMinutes(-5) > post.Timestamp && dislikes > 1.5 * likes + 4)
         {
             _logger.LogInformation("Deleting post. Dislikes = {Dislikes}, Likes = {Likes}", dislikes, likes);
             await DeleteMediaGroupIfNeeded(msg, post);
