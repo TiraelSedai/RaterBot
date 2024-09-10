@@ -192,7 +192,7 @@ internal sealed class MessageHandler
     {
         var msg = update.Message!;
         var from = msg.From!;
-        var newUri = $"https://fxtwitter.com{uri.LocalPath}";
+        var newUri = $"https://g.fixupx.com{uri.LocalPath}";
 
         var newMessage = await _botClient.SendTextMessageAsync(
             msg.Chat.Id,
