@@ -259,7 +259,7 @@ internal sealed class MessageHandler
             _botClient.ReplyAndDeleteLater(msg, "Нельзя удалить чужой пост", _logger);
             return;
         }
-        if (post.Timestamp + TimeSpan.FromHours(1) < DateTime.UtcNow)
+        if (post.Timestamp + TimeSpan.FromHours(4) < DateTime.UtcNow)
         {
             _botClient.ReplyAndDeleteLater(msg, "Этот пост слишком старый, чтобы его удалять", _logger);
             return;
