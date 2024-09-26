@@ -507,15 +507,7 @@ internal sealed class MessageHandler
         if (post == null)
         {
             _logger.LogError("Cannot find post in the database, ChatId = {ChatId}, MessageId = {MessageId}", msg.Chat.Id, msg.MessageId);
-            try
-            {
-                await _botClient.EditMessageReplyMarkupAsync(msg.Chat.Id, msg.MessageId, InlineKeyboardMarkup.Empty());
-            }
-            catch (ApiRequestException e)
-            {
-                _logger.LogWarning(e, "Unable to set empty reply markup, trying to delete post");
-                await _botClient.DeleteMessageAsync(msg.Chat.Id, msg.MessageId);
-            }
+            await _botClient.AnswerCallbackQueryAsync(update.CallbackQuery.Id, "Пост не найден, что-то пошло не так :(");
             return;
         }
 
