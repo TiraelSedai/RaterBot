@@ -21,16 +21,15 @@ internal class Polly
                     { Exception: ApiRequestException are }
                         when are.Message.Contains(
                             "message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"
-                        )
-                        => PredicateResult.True(),
-                    _ => PredicateResult.False()
+                        ) => PredicateResult.True(),
+                    _ => PredicateResult.False(),
                 },
             FallbackAction = static args => Outcome.FromResultAsValueTask(new Message()),
             OnFallback = args =>
             {
                 logger.LogInformation("Message with reply markup: not modified, already the same");
                 return ValueTask.CompletedTask;
-            }
+            },
         };
 
         var options = new RetryStrategyOptions()
@@ -44,7 +43,7 @@ internal class Polly
                 if (retryAfter != null)
                     return ValueTask.FromResult<TimeSpan?>(TimeSpan.FromSeconds(retryAfter.Value));
                 return ValueTask.FromResult<TimeSpan?>(null);
-            }
+            },
         };
 
         RetryAfter = new ResiliencePipelineBuilder().AddRetry(options).Build();

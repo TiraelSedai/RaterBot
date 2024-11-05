@@ -27,7 +27,7 @@ namespace RaterBot
 
                 try
                 {
-                    var member = await telegramBotClient.GetChatMemberAsync(chat.Id, id);
+                    var member = await telegramBotClient.GetChatMember(chat.Id, id);
                     userIdToUser[id] = member.User;
                     MemoryCache.Default.Add(id.ToString(), member, new CacheItemPolicy { SlidingExpiration = TimeSpan.FromHours(1) });
                 }
@@ -53,7 +53,7 @@ namespace RaterBot
                 new[]
                 {
                     new InlineKeyboardButton("👍") { CallbackData = "+" },
-                    new InlineKeyboardButton("👎") { CallbackData = "-" }
+                    new InlineKeyboardButton("👎") { CallbackData = "-" },
                 }
             );
 
@@ -106,7 +106,7 @@ namespace RaterBot
             '{',
             '}',
             '.',
-            '!'
+            '!',
         ];
     }
 }

@@ -68,10 +68,10 @@ namespace RaterBot
 
         private async Task HandleOneChatCore(SqliteDb db, DateTime now, TimeSpan day, long chatId)
         {
-            var chat = await _botClient.GetChatAsync(chatId);
+            var chat = await _botClient.GetChat(chatId);
             _logger.LogDebug("Chat {Title}", chat.Title);
-            var topPosts = db.Posts
-                .Where(x => x.ChatId == chatId && x.Timestamp > now - day)
+            var topPosts = db
+                .Posts.Where(x => x.ChatId == chatId && x.Timestamp > now - day)
                 .OrderByDescending(x => x.Interactions.Select(x => x.Reaction ? 1 : -1).Sum())
                 .ThenBy(x => x.Id)
                 .Take(20)
@@ -81,8 +81,8 @@ namespace RaterBot
                 .ToList();
             var previousTop = db.TopPostsDays.Where(x => x.ChatId == chatId).ToList();
             var messageIds = previousTop.Select(x => x.PostId).ToList();
-            var previousTopPostsDb = db.Posts
-                .Where(x => x.ChatId == chatId && messageIds.Contains(x.MessageId))
+            var previousTopPostsDb = db
+                .Posts.Where(x => x.ChatId == chatId && messageIds.Contains(x.MessageId))
                 .LoadWith(x => x.Interactions)
                 .ToList();
 
@@ -145,52 +145,46 @@ namespace RaterBot
                         userOk = userIdToUser.TryGetValue(prevTopDb.PosterId, out user);
                     if (userOk)
                     {
-                        await _polly
-                            .MessageEdit
-                            .ExecuteAsync(
-                                async (ct) =>
-                                    await _botClient.EditMessageCaptionAsync(
-                                        chatId,
-                                        (int)post.PostId,
-                                        TelegramHelper.MentionUsername(user!),
-                                        parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2,
-                                        replyMarkup: ikm,
-                                        cancellationToken: ct
-                                    )
-                            );
+                        await _polly.MessageEdit.ExecuteAsync(
+                            async (ct) =>
+                                await _botClient.EditMessageCaption(
+                                    chatId,
+                                    (int)post.PostId,
+                                    TelegramHelper.MentionUsername(user!),
+                                    parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2,
+                                    replyMarkup: ikm,
+                                    cancellationToken: ct
+                                )
+                        );
                     }
                     else
                     {
                         if (prevTopDb == null)
                             db.TopPostsDays.Delete(x => x.Id == post.Id);
-                        await _polly
-                            .MessageEdit
-                            .ExecuteAsync(
-                                async (ct) =>
-                                    await _botClient.EditMessageCaptionAsync(
-                                        chatId,
-                                        (int)post.PostId,
-                                        "От покинувшего чат пользователя",
-                                        replyMarkup: ikm,
-                                        cancellationToken: ct
-                                    )
-                            );
-                    }
-                }
-                else
-                {
-                    await _polly
-                        .MessageEdit
-                        .ExecuteAsync(
+                        await _polly.MessageEdit.ExecuteAsync(
                             async (ct) =>
-                                await _botClient.EditMessageTextAsync(
+                                await _botClient.EditMessageCaption(
                                     chatId,
                                     (int)post.PostId,
-                                    "Оценить альбом",
+                                    "От покинувшего чат пользователя",
                                     replyMarkup: ikm,
                                     cancellationToken: ct
                                 )
                         );
+                    }
+                }
+                else
+                {
+                    await _polly.MessageEdit.ExecuteAsync(
+                        async (ct) =>
+                            await _botClient.EditMessageText(
+                                chatId,
+                                (int)post.PostId,
+                                "Оценить альбом",
+                                replyMarkup: ikm,
+                                cancellationToken: ct
+                            )
+                    );
                 }
             }
             catch (ApiRequestException e) when (e.Message.Contains("message to edit not found"))
@@ -209,10 +203,8 @@ namespace RaterBot
                 var likes = interactions.Count(x => x.Reaction);
                 var dislikes = interactions.Count - likes;
                 ikm = new InlineKeyboardMarkup(
-                    [
-                        new InlineKeyboardButton(likes > 0 ? $"{likes} 👍" : "👍") { CallbackData = "+" },
-                        new InlineKeyboardButton(dislikes > 0 ? $"{dislikes} 👎" : "👎") { CallbackData = "-" }
-                    ]
+                    new InlineKeyboardButton(likes > 0 ? $"{likes} 👍" : "👍") { CallbackData = "+" },
+                    new InlineKeyboardButton(dislikes > 0 ? $"{dislikes} 👎" : "👎") { CallbackData = "-" }
                 );
             }
 
@@ -240,51 +232,45 @@ namespace RaterBot
                 var userOk = userIdToUser.TryGetValue(post.PosterId, out var user);
                 if (userOk)
                 {
-                    await _polly
-                        .MessageEdit
-                        .ExecuteAsync(
-                            async (ct) =>
-                                await _botClient.EditMessageCaptionAsync(
-                                    chatId,
-                                    (int)post.MessageId,
-                                    $"{TelegramHelper.MentionUsername(user!)}{Environment.NewLine}{Environment.NewLine}\\{TopOfTheDayHashTag}",
-                                    parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2,
-                                    replyMarkup: ikm,
-                                    cancellationToken: ct
-                                )
-                        );
-                }
-                else
-                {
-                    await _polly
-                        .MessageEdit
-                        .ExecuteAsync(
-                            async (ct) =>
-                                await _botClient.EditMessageCaptionAsync(
-                                    chatId,
-                                    (int)post.MessageId,
-                                    $"От покинувшего чат пользователя{Environment.NewLine}{Environment.NewLine}\\{TopOfTheDayHashTag}",
-                                    parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2,
-                                    replyMarkup: ikm,
-                                    cancellationToken: ct
-                                )
-                        );
-                }
-            }
-            else
-            {
-                await _polly
-                    .MessageEdit
-                    .ExecuteAsync(
+                    await _polly.MessageEdit.ExecuteAsync(
                         async (ct) =>
-                            await _botClient.EditMessageTextAsync(
+                            await _botClient.EditMessageCaption(
                                 chatId,
                                 (int)post.MessageId,
-                                $"Оценить альбом{Environment.NewLine}{Environment.NewLine}{TopOfTheDayHashTag}",
+                                $"{TelegramHelper.MentionUsername(user!)}{Environment.NewLine}{Environment.NewLine}\\{TopOfTheDayHashTag}",
+                                parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2,
                                 replyMarkup: ikm,
                                 cancellationToken: ct
                             )
                     );
+                }
+                else
+                {
+                    await _polly.MessageEdit.ExecuteAsync(
+                        async (ct) =>
+                            await _botClient.EditMessageCaption(
+                                chatId,
+                                (int)post.MessageId,
+                                $"От покинувшего чат пользователя{Environment.NewLine}{Environment.NewLine}\\{TopOfTheDayHashTag}",
+                                parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2,
+                                replyMarkup: ikm,
+                                cancellationToken: ct
+                            )
+                    );
+                }
+            }
+            else
+            {
+                await _polly.MessageEdit.ExecuteAsync(
+                    async (ct) =>
+                        await _botClient.EditMessageText(
+                            chatId,
+                            (int)post.MessageId,
+                            $"Оценить альбом{Environment.NewLine}{Environment.NewLine}{TopOfTheDayHashTag}",
+                            replyMarkup: ikm,
+                            cancellationToken: ct
+                        )
+                );
             }
             db.Insert(new TopPostsDay { ChatId = chatId, PostId = post.MessageId });
         }

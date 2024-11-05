@@ -56,13 +56,11 @@ internal sealed class DeduplicationService
     {
         var now = DateTime.UtcNow;
         var compareTo = await _sqliteDb
-            .Posts
-            .Where(
-                x =>
-                    x.ChatId == item.Chat.Id
-                    && x.MessageId != item.MessageId.Id
-                    && x.MediaHash != null
-                    && x.Timestamp > now - _deduplicationWindow
+            .Posts.Where(x =>
+                x.ChatId == item.Chat.Id
+                && x.MessageId != item.MessageId.Id
+                && x.MediaHash != null
+                && x.Timestamp > now - _deduplicationWindow
             )
             .OrderByDescending(x => x.Timestamp)
             .ToListAsync();
@@ -85,7 +83,7 @@ internal sealed class DeduplicationService
     {
         _logger.LogDebug(nameof(CalculateAndWriteHash));
         using var ms = new MemoryStream();
-        await _bot.GetInfoAndDownloadFileAsync(item.PhotoFileId, ms);
+        await _bot.GetInfoAndDownloadFile(item.PhotoFileId, ms);
         _logger.LogDebug("Image download ok");
         ms.Seek(0, SeekOrigin.Begin);
         using var image = Image.Load<Rgba32>(ms);
@@ -93,8 +91,7 @@ internal sealed class DeduplicationService
         var hash = _hashAlgo.Hash(image);
         var imageHash = JsonSerializer.Serialize(new ImageHash(hash), SourceGenerationContext.Default.ImageHash);
         await _sqliteDb
-            .Posts
-            .Where(x => x.ChatId == item.Chat.Id && x.MessageId == item.MessageId.Id)
+            .Posts.Where(x => x.ChatId == item.Chat.Id && x.MessageId == item.MessageId.Id)
             .Set(x => x.MediaHash, imageHash)
             .UpdateAsync();
         _logger.LogDebug("New image hash written to database");

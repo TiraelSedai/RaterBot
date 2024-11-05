@@ -22,13 +22,13 @@ namespace RaterBot
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            var me = await _botClient.GetMeAsync(cancellationToken: stoppingToken);
-            await _botClient.SetMyCommandsAsync(
+            var me = await _botClient.GetMe(cancellationToken: stoppingToken);
+            await _botClient.SetMyCommands(
                 [
                     new BotCommand
                     {
                         Command = "text",
-                        Description = "Реплай на текстовое сообщение/линк чтобы бот преобразовал его в оцениваемое"
+                        Description = "Реплай на текстовое сообщение/линк чтобы бот преобразовал его в оцениваемое",
                     },
                     new BotCommand { Command = "top_posts_day", Description = "Топ постов дня" },
                     new BotCommand { Command = "top_posts_week", Description = "Топ постов недели" },
@@ -40,14 +40,13 @@ namespace RaterBot
                     new BotCommand
                     {
                         Command = "delete",
-                        Description = "Реплай на своё случайно преобразованное сообщение чтобы удалить его"
+                        Description = "Реплай на своё случайно преобразованное сообщение чтобы удалить его",
                     },
                     new BotCommand
                     {
                         Command = "ignore",
-                        Description =
-                            "или #ignore, или /skip, или #skip - добавь к видео или фото, чтобы бот не преобразовывал его"
-                    }
+                        Description = "или #ignore, или /skip, или #skip - добавь к видео или фото, чтобы бот не преобразовывал его",
+                    },
                 ],
                 cancellationToken: stoppingToken
             );
@@ -58,7 +57,7 @@ namespace RaterBot
             {
                 try
                 {
-                    var updates = await _botClient.GetUpdatesAsync(
+                    var updates = await _botClient.GetUpdates(
                         offset,
                         100,
                         300,
@@ -107,12 +106,7 @@ namespace RaterBot
         {
             var text = message.Caption ?? message.Text;
             return text != null
-                && Regex.IsMatch(
-                    text,
-                    "(\\/|#)(ignore|skip)",
-                    RegexOptions.Compiled | RegexOptions.IgnoreCase,
-                    TimeSpan.FromSeconds(1)
-                );
+                && Regex.IsMatch(text, "(\\/|#)(ignore|skip)", RegexOptions.Compiled | RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
         }
     }
 }

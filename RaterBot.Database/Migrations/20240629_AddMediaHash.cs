@@ -12,7 +12,6 @@ public class AddMediaHash : Migration
 
     public override void Down()
     {
-
         Create
             .Table("New_Post")
             .WithColumn(nameof(Post.Id))
@@ -36,11 +35,13 @@ public class AddMediaHash : Migration
             .NotNullable()
             .Indexed()
             .WithDefault(SystemMethods.CurrentDateTime)
-            .WithColumn(nameof(Post.ReplyMessageId)).AsInt64().Nullable();
+            .WithColumn(nameof(Post.ReplyMessageId))
+            .AsInt64()
+            .Nullable();
 
         Execute.Sql(
             "INSERT INTO \"New_Post\" (\"Id\", \"ChatId\", \"PosterId\", \"MessageId\", \"Timestamp\", \"ReplyMessageId\") "
-            + "SELECT \"Id\", \"ChatId\", \"PosterId\", \"MessageId\", \"Timestamp\", \"ReplyMessageId\" FROM \"Post\""
+                + "SELECT \"Id\", \"ChatId\", \"PosterId\", \"MessageId\", \"Timestamp\", \"ReplyMessageId\" FROM \"Post\""
         );
 
         Delete.Table(nameof(Post));

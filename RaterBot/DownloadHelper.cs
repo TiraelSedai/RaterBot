@@ -10,12 +10,12 @@ internal enum UrlType
     TikTok,
     Vk,
     Reddit,
-    Youtube
+    Youtube,
 }
 
 internal static class DownloadHelper
 {
-    private readonly static string _tmp = Path.GetTempPath();
+    private static readonly string _tmp = Path.GetTempPath();
 
     public static async Task<string[]> DownloadGalleryDl(Uri url)
     {
@@ -28,8 +28,8 @@ internal static class DownloadHelper
                 FileName = "gallery-dl",
                 Arguments = args,
                 CreateNoWindow = true,
-                RedirectStandardOutput = true
-            }
+                RedirectStandardOutput = true,
+            },
         };
 
         process.Start();
@@ -37,12 +37,9 @@ internal static class DownloadHelper
 
         await process.WaitForExitAsync();
         var stdout = await process.StandardOutput.ReadToEndAsync();
-        var results = stdout
-            .Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries)
-            .Where(x => x.StartsWith(_tmp))
-            .ToArray();
+        var results = stdout.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Where(x => x.StartsWith(_tmp)).ToArray();
         RemoveAfterDelay(results);
-        return process.ExitCode == 0 ? results : Array.Empty<string>();
+        return process.ExitCode == 0 ? results : [];
     }
 
     private static void KillIfNotExitedInAWhile(Process process)
@@ -87,11 +84,11 @@ internal static class DownloadHelper
                 FileName = "yt-dlp",
                 Arguments = $"{url} -o {file}",
                 CreateNoWindow = true,
-            }
+            },
         };
 
         process.Start();
-        RemoveAfterDelay(new[] { file });
+        RemoveAfterDelay([file]);
 
         if (!process.WaitForExit(TimeSpan.FromMinutes(1)))
         {
