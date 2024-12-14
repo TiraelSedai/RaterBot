@@ -29,7 +29,7 @@ namespace RaterBot
                 {
                     _logger.LogDebug("TopPostDayService tick");
                     using var scope = _serviceProvider.CreateScope();
-                    using var db = scope.ServiceProvider.GetRequiredService<SqliteDb>();
+                    await using var db = scope.ServiceProvider.GetRequiredService<SqliteDb>();
                     await Tick(db);
                 }
                 catch (Exception ex)
@@ -48,7 +48,7 @@ namespace RaterBot
             var day = TimeSpan.FromDays(1);
             var activeChats = db.Posts.Where(x => x.Timestamp > now - activeWindow).Select(x => x.ChatId).Distinct().ToList();
 
-            foreach (var chatId in activeChats.OrderBy(x => Random.Shared.Next()))
+            foreach (var chatId in activeChats.OrderBy(_ => Random.Shared.Next()))
                 await HandleOneChat(db, now, day, chatId);
         }
 
@@ -72,12 +72,12 @@ namespace RaterBot
             _logger.LogDebug("Chat {Title}", chat.Title);
             var topPosts = db
                 .Posts.Where(x => x.ChatId == chatId && x.Timestamp > now - day)
-                .OrderByDescending(x => x.Interactions.Select(x => x.Reaction ? 1 : -1).Sum())
+                .OrderByDescending(x => x.Interactions.Select(i => i.Reaction ? 1 : -1).Sum())
                 .ThenBy(x => x.Id)
                 .Take(20)
                 .LoadWith(x => x.Interactions)
                 .ToList()
-                .Where(x => x.Interactions.Select(x => x.Reaction ? 1 : -1).Sum() > 0)
+                .Where(x => x.Interactions.Select(i => i.Reaction ? 1 : -1).Sum() > 0)
                 .ToList();
             var previousTop = db.TopPostsDays.Where(x => x.ChatId == chatId).ToList();
             var messageIds = previousTop.Select(x => x.PostId).ToList();
@@ -89,7 +89,7 @@ namespace RaterBot
             var interestingUsers = topPosts.Select(x => x.PosterId).Concat(previousTopPostsDb.Select(x => x.PosterId)).Distinct().ToList();
             var userIdToUser = await TelegramHelper.GetTelegramUsers(chat, interestingUsers, _botClient);
 
-            var noLongerTop = previousTop.Where(x => !topPosts.Select(x => x.MessageId).Contains(x.PostId));
+            var noLongerTop = previousTop.Where(x => !topPosts.Select(post => post.MessageId).Contains(x.PostId));
 
             foreach (var post in noLongerTop)
             {
@@ -97,7 +97,7 @@ namespace RaterBot
                 await Task.Delay(_delay);
             }
 
-            var newTop = topPosts.Where(x => !previousTop.Select(x => x.Id).Contains(x.MessageId));
+            var newTop = topPosts.Where(x => !previousTop.Select(tpd => tpd.Id).Contains(x.MessageId));
             foreach (var post in newTop)
             {
                 await NewTopPost(db, chatId, userIdToUser, post);

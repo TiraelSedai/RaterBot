@@ -9,7 +9,7 @@ namespace RaterBot;
 internal class Polly
 {
     public ResiliencePipeline<Message> MessageEdit { get; }
-    public ResiliencePipeline RetryAfter { get; }
+    private ResiliencePipeline RetryAfter { get; }
 
     public Polly(ILogger<Polly> logger)
     {
@@ -24,8 +24,8 @@ internal class Polly
                         ) => PredicateResult.True(),
                     _ => PredicateResult.False(),
                 },
-            FallbackAction = static args => Outcome.FromResultAsValueTask(new Message()),
-            OnFallback = args =>
+            FallbackAction = static _ => Outcome.FromResultAsValueTask(new Message()),
+            OnFallback = _ =>
             {
                 logger.LogInformation("Message with reply markup: not modified, already the same");
                 return ValueTask.CompletedTask;
