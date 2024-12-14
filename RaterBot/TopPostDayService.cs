@@ -160,7 +160,7 @@ namespace RaterBot
                     else
                     {
                         if (prevTopDb == null)
-                            db.TopPostsDays.Delete(x => x.Id == post.Id);
+                            await db.TopPostsDays.DeleteAsync(x => x.Id == post.Id);
                         await _polly.MessageEdit.ExecuteAsync(
                             async (ct) =>
                                 await _botClient.EditMessageCaption(
@@ -191,7 +191,7 @@ namespace RaterBot
             {
                 _logger.LogInformation("Somebody deleted the message already, just remove from database");
             }
-            db.TopPostsDays.Delete(x => x.Id == post.Id);
+            await db.TopPostsDays.DeleteAsync(x => x.Id == post.Id);
         }
 
         private static InlineKeyboardMarkup ConstructReplyMarkup(Post? prevTopDb)
@@ -272,7 +272,7 @@ namespace RaterBot
                         )
                 );
             }
-            db.Insert(new TopPostsDay { ChatId = chatId, PostId = post.MessageId });
+            await db.InsertAsync(new TopPostsDay { ChatId = chatId, PostId = post.MessageId });
         }
 
         protected override Task ExecuteAsync(CancellationToken stoppingToken)

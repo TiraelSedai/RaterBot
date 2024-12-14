@@ -266,8 +266,8 @@ internal sealed class MessageHandler
         }
         await _botClient.DeleteMessage(msg.Chat.Id, msg.ReplyToMessage.MessageId);
         await _botClient.DeleteMessage(msg.Chat.Id, msg.MessageId);
-        _sqliteDb.Interactions.Where(i => i.PostId == post.Id).Delete();
-        _sqliteDb.Posts.Where(p => p.Id == post.Id).Delete();
+        await _sqliteDb.Interactions.Where(i => i.PostId == post.Id).DeleteAsync();
+        await _sqliteDb.Posts.Where(p => p.Id == post.Id).DeleteAsync();
     }
 
     private async Task HandleControversial(Update update, Period period)
@@ -316,7 +316,6 @@ internal sealed class MessageHandler
         message.Append(':');
         message.Append(Environment.NewLine);
         var i = 0;
-        var sg = chat.Type == ChatType.Supergroup;
         foreach (var item in controversialPosts)
         {
             AppendPlace(message, i);
@@ -347,7 +346,7 @@ internal sealed class MessageHandler
             .LoadWith(p => p.Interactions)
             .ToList();
 
-        if (!posts.SelectMany(x => x.Interactions).Where(i => i.Reaction).Any())
+        if (!posts.SelectMany(x => x.Interactions).Any(i => i.Reaction))
         {
             await _botClient.SendMessage(chat.Id, $"Не найдено заплюсованных постов за {ForLast(period)}");
             return;
@@ -418,7 +417,7 @@ internal sealed class MessageHandler
         if (!posts.SelectMany(p => p.Interactions).Any())
         {
             await _botClient.SendMessage(chat.Id, $"Не найдено заплюсованных постов за {ForLast(period)}");
-            _logger.LogInformation($"{nameof(HandleTopPosts)} - no upvoted posts, skipping");
+            _logger.LogInformation($"{nameof(HandleTopPosts)} - no up-voted posts, skipping");
             return;
         }
 
@@ -530,7 +529,7 @@ internal sealed class MessageHandler
                 _logger.LogInformation("No need to update reaction");
                 return;
             }
-            _sqliteDb.Interactions.Where(i => i.Id == interaction.Id).Set(i => i.Reaction, newReaction).Update();
+            await _sqliteDb.Interactions.Where(i => i.Id == interaction.Id).Set(i => i.Reaction, newReaction).UpdateAsync();
             interaction.Reaction = newReaction;
         }
         else
@@ -541,7 +540,7 @@ internal sealed class MessageHandler
                 UserId = update.CallbackQuery.From.Id,
                 PostId = post.Id,
             };
-            _sqliteDb.Insert(interaction);
+            await _sqliteDb.InsertAsync(interaction);
             interactions.Add(interaction);
         }
 
@@ -553,8 +552,8 @@ internal sealed class MessageHandler
             _logger.LogInformation("Deleting post. Dislikes = {Dislikes}, Likes = {Likes}", dislikes, likes);
             await DeleteMediaGroupIfNeeded(msg, post);
             await _botClient.DeleteMessage(msg.Chat.Id, msg.MessageId);
-            _sqliteDb.Interactions.Delete(i => i.PostId == post.Id);
-            _sqliteDb.Posts.Delete(p => p.Id == post.Id);
+            await _sqliteDb.Interactions.DeleteAsync(i => i.PostId == post.Id);
+            await _sqliteDb.Posts.DeleteAsync(p => p.Id == post.Id);
             await _botClient.AnswerCallbackQuery(update.CallbackQuery.Id, "Твой голос стал решающей каплей, этот пост удалён");
             return;
         }
@@ -609,7 +608,7 @@ internal sealed class MessageHandler
 
         var processingMsg = await _botClient.SendMessage(msg.Chat.Id, "Processing...", replyParameters: msg);
 
-        var disposeMe = Array.Empty<Stream>();
+        FileStream[] disposeMe = [];
         try
         {
             var fileList = await DownloadHelper.DownloadGalleryDl(link);
@@ -629,7 +628,7 @@ internal sealed class MessageHandler
                         .Take(10)
                         .Select(
                             (x, i) =>
-                                // Videos cannot be album in Twitter, so we assume it's photo
+                                // Videos cannot be album in Twitter, so we assume it is photo
                                 new InputMediaPhoto(InputFile.FromStream(x, Path.GetFileName(fileList[i])))
                                 {
                                     Caption = caption,
@@ -677,7 +676,7 @@ internal sealed class MessageHandler
         finally
         {
             foreach (var fileStream in disposeMe)
-                fileStream.Dispose();
+                await fileStream.DisposeAsync();
             _ = _botClient.DeleteMessage(msg.Chat.Id, processingMsg.MessageId);
         }
     }
