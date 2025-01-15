@@ -286,22 +286,18 @@ internal sealed class MessageHandler
         }
 
         var posts = _sqliteDb
-            .Posts
-            .Where(p => p.ChatId == chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
+            .Posts.Where(p => p.ChatId == chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
             .LoadWith(p => p.Interactions)
             .ToList();
 
         var controversialPosts = posts
-            .Select(
-                p =>
-                    new
-                    {
-                        Post = p,
-                        Likes = p.Interactions.Count(i => i.Reaction),
-                        Dislikes = p.Interactions.Count(i => !i.Reaction),
-                        Magnitude = p.Interactions.Count(),
-                    }
-            )
+            .Select(p => new
+            {
+                Post = p,
+                Likes = p.Interactions.Count(i => i.Reaction),
+                Dislikes = p.Interactions.Count(i => !i.Reaction),
+                Magnitude = p.Interactions.Count(),
+            })
             .OrderByDescending(x => x.Magnitude * (double)Math.Min(x.Dislikes, x.Likes) / Math.Max(x.Dislikes, x.Likes))
             .ThenByDescending(x => x.Dislikes)
             .Take(20)
@@ -341,8 +337,7 @@ internal sealed class MessageHandler
         Debug.Assert(update.Message != null);
         var chat = update.Message.Chat;
         var posts = _sqliteDb
-            .Posts
-            .Where(p => p.ChatId == update.Message.Chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
+            .Posts.Where(p => p.ChatId == update.Message.Chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
             .LoadWith(p => p.Interactions)
             .ToList();
 
@@ -356,15 +351,12 @@ internal sealed class MessageHandler
 
         var topAuthors = postWithLikes
             .GroupBy(x => x.Post.PosterId)
-            .Select(
-                g =>
-                    new
-                    {
-                        PosterId = g.Key,
-                        Likes = g.Sum(x => x.Likes),
-                        HirschIndex = g.OrderByDescending(x => x.Likes).TakeWhile((x, iter) => x.Likes >= iter + 1).Count(),
-                    }
-            )
+            .Select(g => new
+            {
+                PosterId = g.Key,
+                Likes = g.Sum(x => x.Likes),
+                HirschIndex = g.OrderByDescending(x => x.Likes).TakeWhile((x, iter) => x.Likes >= iter + 1).Count(),
+            })
             .OrderByDescending(x => x.HirschIndex)
             .ThenByDescending(x => x.Likes)
             .Take(20)
@@ -409,8 +401,7 @@ internal sealed class MessageHandler
         }
 
         var posts = _sqliteDb
-            .Posts
-            .Where(p => p.ChatId == chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
+            .Posts.Where(p => p.ChatId == chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
             .LoadWith(p => p.Interactions)
             .ToList();
 
@@ -499,8 +490,7 @@ internal sealed class MessageHandler
 
         _logger.LogDebug("Valid callback request");
         var post = _sqliteDb
-            .Posts
-            .Where(p => p.ChatId == msg.Chat.Id && p.MessageId == msg.MessageId)
+            .Posts.Where(p => p.ChatId == msg.Chat.Id && p.MessageId == msg.MessageId)
             .LoadWith(p => p.Interactions)
             .SingleOrDefault();
         if (post == null)

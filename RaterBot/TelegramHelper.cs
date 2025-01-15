@@ -48,14 +48,13 @@ namespace RaterBot
         private static string LinkToGroupWithNameMessage(Chat chat, long messageId) =>
             chat.Username != null ? $"https://t.me/{chat.Username}/{messageId}" : "";
 
-        public static readonly InlineKeyboardMarkup NewPostIkm =
-            new(
-                new[]
-                {
-                    new InlineKeyboardButton("👍") { CallbackData = "+" },
-                    new InlineKeyboardButton("👎") { CallbackData = "-" },
-                }
-            );
+        public static readonly InlineKeyboardMarkup NewPostIkm = new(
+            new[]
+            {
+                new InlineKeyboardButton("👍") { CallbackData = "+" },
+                new InlineKeyboardButton("👎") { CallbackData = "-" },
+            }
+        );
 
         public static string MentionUsername(User user)
         {
