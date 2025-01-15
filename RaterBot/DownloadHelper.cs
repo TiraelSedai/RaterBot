@@ -82,7 +82,7 @@ internal static class DownloadHelper
             StartInfo = new ProcessStartInfo
             {
                 FileName = "yt-dlp",
-                Arguments = $"{url} -o {file}",
+                Arguments = $"{url} -o {file} -f \"bestvideo[height<=1080][vcodec^=avc][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best\"",
                 CreateNoWindow = true,
             },
         };
