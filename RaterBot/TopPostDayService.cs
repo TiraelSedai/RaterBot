@@ -11,12 +11,14 @@ namespace RaterBot
         IServiceProvider serviceProvider,
         ITelegramBotClient botClient,
         Polly polly,
+        Config config,
         ILogger<TopPostDayService> logger
     ) : BackgroundService
     {
         private readonly IServiceProvider _serviceProvider = serviceProvider;
         private readonly ITelegramBotClient _botClient = botClient;
         private readonly Polly _polly = polly;
+        private readonly Config _config = config;
         private readonly ILogger<TopPostDayService> _logger = logger;
 
         private readonly PeriodicTimer _timer = new(TimeSpan.FromMinutes(60));
@@ -225,6 +227,27 @@ namespace RaterBot
 
         private async Task NewTopPostCore(SqliteDb db, long chatId, Dictionary<long, User> userIdToUser, Post post)
         {
+            var forwardConfigured = _config.ForwardTop.TryGetValue(chatId, out var forwardTo);
+            if (forwardConfigured)
+            {
+                try
+                {
+                    if (post.ReplyMessageId != null)
+                    {
+                        for (var i = (int)post.ReplyMessageId; i < post.MessageId; i++)
+                            await _botClient.ForwardMessage(forwardTo, chatId, i, protectContent: true);
+                    }
+                    else
+                    {
+                        await _botClient.ForwardMessage(forwardTo, chatId, (int)post.MessageId, protectContent: true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Exception forwarding top post to channel");
+                }
+            }
+
             var ikm = ConstructReplyMarkup(post);
             var caption = post.ReplyMessageId == null;
             if (caption)
