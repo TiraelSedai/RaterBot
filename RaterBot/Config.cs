@@ -13,13 +13,13 @@ public class Config
             var split = forwards.Split(";");
             foreach (var pair in split)
             {
-                var line = pair.Split("=");
+                var line = pair.Split(">");
                 if (line.Length < 2)
                     continue;
                 var ok1 = long.TryParse(line[0], out var from);
                 var ok2 = long.TryParse(line[1], out var to);
                 if (ok1 && ok2)
-                    map.Add(from, to);
+                    map.TryAdd(from, to);
             }
         }
 

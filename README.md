@@ -24,6 +24,6 @@ There should be also gallery-dl, ffmpeg & python installed. Please, refer to Doc
 Is not tested, but should work perfectly fine.
 
 #### Configuration
-TELEGRAM_MEDIA_RATER_FORWARD environment variable in format long=long;long=long
+TELEGRAM_MEDIA_RATER_FORWARD environment variable in format long>long;long>long
 
 where first part is to forward from where (e.g. chat id) to where (e.g. channel id)
