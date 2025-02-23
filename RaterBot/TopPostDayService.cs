@@ -21,7 +21,7 @@ namespace RaterBot
         private readonly Config _config = config;
         private readonly ILogger<TopPostDayService> _logger = logger;
 
-        private readonly PeriodicTimer _timer = new(TimeSpan.FromMinutes(30));
+        private readonly PeriodicTimer _timer = new(TimeSpan.FromMinutes(20));
 
         private async Task MainLoop()
         {
@@ -81,17 +81,21 @@ namespace RaterBot
                 .ToList()
                 .Where(x => x.Interactions.Select(i => i.Reaction ? 1 : -1).Sum() > 0)
                 .ToList();
+            _logger.LogDebug("Top posts in chat {Top}", string.Join(',', topPosts.Select(x => x.MessageId)));
             var previousTop = db.TopPostsDays.Where(x => x.ChatId == chatId).ToList();
             var messageIds = previousTop.Select(x => x.PostId).ToList();
             var previousTopPostsDb = db
                 .Posts.Where(x => x.ChatId == chatId && messageIds.Contains(x.MessageId))
                 .LoadWith(x => x.Interactions)
                 .ToList();
+                
+            _logger.LogDebug("Previous top posts in chat {Top}", string.Join(',', previousTopPostsDb.Select(x => x.MessageId)));
 
             var interestingUsers = topPosts.Select(x => x.PosterId).Concat(previousTopPostsDb.Select(x => x.PosterId)).Distinct().ToList();
             var userIdToUser = await TelegramHelper.GetTelegramUsers(chat, interestingUsers, _botClient);
 
             var noLongerTop = previousTop.Where(x => !topPosts.Select(post => post.MessageId).Contains(x.PostId));
+            _logger.LogDebug("No longer top {Top}", string.Join(',', noLongerTop.Select(x => x.PostId)));
 
             foreach (var post in noLongerTop)
             {
@@ -100,6 +104,7 @@ namespace RaterBot
             }
 
             var newTop = topPosts.Where(x => !previousTop.Select(tpd => tpd.Id).Contains(x.MessageId));
+            _logger.LogDebug("New top {Top}", string.Join(',', newTop.Select(x => x.MessageId)));
             foreach (var post in newTop)
             {
                 await NewTopPost(db, chatId, userIdToUser, post);
