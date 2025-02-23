@@ -69,7 +69,7 @@ internal sealed class DeduplicationService
         {
             var candidateHash = JsonSerializer.Deserialize(candidate.MediaHash!, SourceGenerationContext.Default.ImageHash);
             var similarityPercent = CompareHash.Similarity(hash, candidateHash!.ImgHash);
-            _logger.LogDebug("Candidate similarity {SimilarityPercent}%", similarityPercent);
+            // _logger.LogDebug("Candidate similarity {SimilarityPercent}%", similarityPercent);
             if (similarityPercent < SimilarityThreshold)
                 continue;
             _logger.LogInformation("Found possible duplicate");
