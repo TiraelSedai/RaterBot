@@ -21,7 +21,7 @@ namespace RaterBot
         private readonly Config _config = config;
         private readonly ILogger<TopPostDayService> _logger = logger;
 
-        private readonly PeriodicTimer _timer = new(TimeSpan.FromMinutes(60));
+        private readonly PeriodicTimer _timer = new(TimeSpan.FromMinutes(30));
 
         private async Task MainLoop()
         {

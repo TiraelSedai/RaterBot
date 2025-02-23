@@ -26,15 +26,18 @@ public class Config
                     map.TryAdd(from, to);
                     _ = Task.Run(async () =>
                     {
+                        var current = 0L;
                         try
                         {
+                            current = from;
                             var chatFrom = await botClient.GetChat(from);
-                            var chatTo = await botClient.GetChat(from);
+                            current = to;
+                            var chatTo = await botClient.GetChat(to);
                             logger.LogInformation("Forward config detected: from {From} to {To}", chatFrom.Title, chatTo.Title);
                         }
                         catch (Exception e)
                         {
-                            logger.LogWarning(e, "Cannot get one of the forwarding chats");
+                            logger.LogWarning(e, "Cannot get one of the forwarding chats: {Id}", current);
                         }
                     });
                 }
