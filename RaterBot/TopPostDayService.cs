@@ -105,7 +105,7 @@ namespace RaterBot
 
             var newTop = topPosts.Where(x => !previousTop.Select(tpd => tpd.PostId).Contains(x.MessageId)).ToList();
             _logger.LogDebug("New top {Top}", string.Join(',', newTop.Select(x => x.MessageId)));
-            await TryForward(db, chatId, userIdToUser, newTop);
+            await TryForward(chatId, newTop);
             foreach (var post in newTop)
             {
                 await NewTopPost(db, chatId, userIdToUser, post);
@@ -195,6 +195,10 @@ namespace RaterBot
                     );
                 }
             }
+            catch (ApiRequestException e) when (e.Message.Contains("there is no caption in the message to edit"))
+            {
+                _logger.LogWarning("We don't support #TopPostOfTheDay on text memes. Fix me please?");
+            }
             catch (ApiRequestException e) when (e.Message.Contains("message to edit not found"))
             {
                 _logger.LogInformation("Somebody deleted the message already, just remove from database");
@@ -219,7 +223,7 @@ namespace RaterBot
             return ikm;
         }
 
-        private async Task TryForward(SqliteDb db, long sourceChatId, Dictionary<long, User> userIdToUser, ICollection<Post> posts)
+        private async Task TryForward(long sourceChatId, ICollection<Post> posts)
         {
             var forwardConfigured = _config.ForwardTop.TryGetValue(sourceChatId, out var forwardTo);
             if (forwardConfigured)
@@ -259,34 +263,41 @@ namespace RaterBot
             var caption = post.ReplyMessageId == null;
             if (caption)
             {
-                var userOk = userIdToUser.TryGetValue(post.PosterId, out var user);
-                if (userOk)
+                try
                 {
-                    await _polly.MessageEdit.ExecuteAsync(
-                        async (ct) =>
-                            await _botClient.EditMessageCaption(
-                                chatId,
-                                (int)post.MessageId,
-                                $"{TelegramHelper.MentionUsername(user!)}{Environment.NewLine}{Environment.NewLine}\\{TopOfTheDayHashTag}",
-                                parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2,
-                                replyMarkup: ikm,
-                                cancellationToken: ct
-                            )
-                    );
+                    var userOk = userIdToUser.TryGetValue(post.PosterId, out var user);
+                    if (userOk)
+                    {
+                        await _polly.MessageEdit.ExecuteAsync(
+                            async (ct) =>
+                                await _botClient.EditMessageCaption(
+                                    chatId,
+                                    (int)post.MessageId,
+                                    $"{TelegramHelper.MentionUsername(user!)}{Environment.NewLine}{Environment.NewLine}\\{TopOfTheDayHashTag}",
+                                    parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2,
+                                    replyMarkup: ikm,
+                                    cancellationToken: ct
+                                )
+                        );
+                    }
+                    else
+                    {
+                        await _polly.MessageEdit.ExecuteAsync(
+                            async (ct) =>
+                                await _botClient.EditMessageCaption(
+                                    chatId,
+                                    (int)post.MessageId,
+                                    $"От покинувшего чат пользователя{Environment.NewLine}{Environment.NewLine}\\{TopOfTheDayHashTag}",
+                                    parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2,
+                                    replyMarkup: ikm,
+                                    cancellationToken: ct
+                                )
+                        );
+                    }
                 }
-                else
+                catch (ApiRequestException e) when (e.Message.Contains("there is no caption in the message to edit"))
                 {
-                    await _polly.MessageEdit.ExecuteAsync(
-                        async (ct) =>
-                            await _botClient.EditMessageCaption(
-                                chatId,
-                                (int)post.MessageId,
-                                $"От покинувшего чат пользователя{Environment.NewLine}{Environment.NewLine}\\{TopOfTheDayHashTag}",
-                                parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2,
-                                replyMarkup: ikm,
-                                cancellationToken: ct
-                            )
-                    );
+                    _logger.LogInformation("We don't support #TopPostOfTheDay on text memes. Fix me please?");
                 }
             }
             else
