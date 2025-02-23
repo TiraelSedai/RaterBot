@@ -88,7 +88,7 @@ namespace RaterBot
                 .Posts.Where(x => x.ChatId == chatId && messageIds.Contains(x.MessageId))
                 .LoadWith(x => x.Interactions)
                 .ToList();
-                
+
             _logger.LogDebug("Previous top posts in chat {Top}", string.Join(',', previousTopPostsDb.Select(x => x.MessageId)));
 
             var interestingUsers = topPosts.Select(x => x.PosterId).Concat(previousTopPostsDb.Select(x => x.PosterId)).Distinct().ToList();
@@ -103,8 +103,9 @@ namespace RaterBot
                 await Task.Delay(_delay);
             }
 
-            var newTop = topPosts.Where(x => !previousTop.Select(tpd => tpd.Id).Contains(x.MessageId));
+            var newTop = topPosts.Where(x => !previousTop.Select(tpd => tpd.PostId).Contains(x.MessageId)).ToList();
             _logger.LogDebug("New top {Top}", string.Join(',', newTop.Select(x => x.MessageId)));
+            await TryForward(db, chatId, userIdToUser, newTop);
             foreach (var post in newTop)
             {
                 await NewTopPost(db, chatId, userIdToUser, post);
@@ -218,6 +219,28 @@ namespace RaterBot
             return ikm;
         }
 
+        private async Task TryForward(SqliteDb db, long sourceChatId, Dictionary<long, User> userIdToUser, ICollection<Post> posts)
+        {
+            var forwardConfigured = _config.ForwardTop.TryGetValue(sourceChatId, out var forwardTo);
+            if (forwardConfigured)
+            {
+                var ids = posts.Where(x => x.ReplyMessageId == null).Select(x => (int)x.MessageId).ToList();
+                foreach (var post in posts.Where(x => x.ReplyMessageId != null))
+                    for (var i = post.ReplyMessageId!.Value; i < post.MessageId; i++)
+                        ids.Add((int)i);
+
+                try
+                {
+                    await _botClient.ForwardMessages(forwardTo, sourceChatId, ids, disableNotification: true, protectContent: true);
+                    await Task.Delay(_delay);
+                }
+                catch (Exception e)
+                {
+                    _logger.LogWarning(e, "Exception forwarding top post to channel");
+                }
+            }
+        }
+
         private async Task NewTopPost(SqliteDb db, long chatId, Dictionary<long, User> userIdToUser, Post post)
         {
             try
@@ -232,27 +255,6 @@ namespace RaterBot
 
         private async Task NewTopPostCore(SqliteDb db, long chatId, Dictionary<long, User> userIdToUser, Post post)
         {
-            var forwardConfigured = _config.ForwardTop.TryGetValue(chatId, out var forwardTo);
-            if (forwardConfigured)
-            {
-                try
-                {
-                    if (post.ReplyMessageId != null)
-                    {
-                        for (var i = (int)post.ReplyMessageId; i < post.MessageId; i++)
-                            await _botClient.ForwardMessage(forwardTo, chatId, i, protectContent: true);
-                    }
-                    else
-                    {
-                        await _botClient.ForwardMessage(forwardTo, chatId, (int)post.MessageId, protectContent: true);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Exception forwarding top post to channel");
-                }
-            }
-
             var ikm = ConstructReplyMarkup(post);
             var caption = post.ReplyMessageId == null;
             if (caption)
