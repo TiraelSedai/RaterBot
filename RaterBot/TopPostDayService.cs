@@ -223,15 +223,38 @@ namespace RaterBot
             return ikm;
         }
 
+        private readonly Dictionary<long, List<long>> _recentForwards = [];
+
         private async Task TryForward(long sourceChatId, ICollection<Post> posts)
         {
             var forwardConfigured = _config.ForwardTop.TryGetValue(sourceChatId, out var forwardTo);
             if (forwardConfigured)
             {
-                var ids = posts.Where(x => x.ReplyMessageId == null).Select(x => (int)x.MessageId).ToList();
+                var ok = _recentForwards.TryGetValue(sourceChatId, out var recentForwards);
+                if (!ok)
+                    recentForwards = [];
+
+                List<int> ids = [];
+                foreach (var post in posts.Where(x => x.ReplyMessageId == null))
+                {
+                    if (!recentForwards!.Contains(post.MessageId))
+                    {
+                        recentForwards.Add(post.MessageId);
+                        ids.Add((int)post.MessageId);
+                    }
+                }
+
                 foreach (var post in posts.Where(x => x.ReplyMessageId != null))
-                    for (var i = post.ReplyMessageId!.Value; i < post.MessageId; i++)
-                        ids.Add((int)i);
+                {
+                    if (!recentForwards!.Contains(post.MessageId))
+                    {
+                        recentForwards.Add(post.MessageId);
+                        for (var i = post.ReplyMessageId!.Value; i < post.MessageId; i++)
+                            ids.Add((int)i);
+                    }
+                }
+
+                _recentForwards[sourceChatId] = [.. recentForwards!.TakeLast(100)];
 
                 try
                 {
