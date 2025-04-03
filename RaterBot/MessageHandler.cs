@@ -131,8 +131,11 @@ internal sealed class MessageHandler
                         case UrlType.Reddit:
                             await HandleGalleryDl(update, url!);
                             break;
-                        case UrlType.AutoText:
-                            await HandleAutoText(update, url!);
+                        case UrlType.Instagram:
+                            await HandleInstagram(update, url!);
+                            break;
+                        case UrlType.Twitter:
+                            await HandleTwitter(update, url!);
                             break;
                         case UrlType.NotFound:
                         default:
@@ -169,14 +172,31 @@ internal sealed class MessageHandler
         }
     }
 
-    private async Task HandleAutoText(Update update, string uri)
+    private async Task HandleInstagram(Update update, Uri uri)
     {
         var msg = update.Message!;
         var from = msg.From!;
+        var newUri = $"https://ddinstagram.com{uri.LocalPath}";
 
         var newMessage = await _botClient.SendMessage(
             msg.Chat.Id,
-            $"{AtMentionUsername(from)}:{Environment.NewLine}{uri}",
+            $"{AtMentionUsername(from)}:{Environment.NewLine}{newUri}",
+            replyMarkup: TelegramHelper.NewPostIkm
+        );
+
+        InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+        await _botClient.DeleteMessage(msg.Chat, msg.MessageId);
+    }
+
+    private async Task HandleTwitter(Update update, Uri uri)
+    {
+        var msg = update.Message!;
+        var from = msg.From!;
+        var newUri = $"https://fixupx.com{uri.LocalPath}";
+
+        var newMessage = await _botClient.SendMessage(
+            msg.Chat.Id,
+            $"{AtMentionUsername(from)}:{Environment.NewLine}{newUri}",
             replyMarkup: TelegramHelper.NewPostIkm
         );
 
@@ -200,26 +220,13 @@ internal sealed class MessageHandler
             if (host.EndsWith("vk.com"))
                 return (UrlType.Vk, url);
             if (host.EndsWith("twitter.com") || host.Equals("x.com"))
-                var newUri = $"https://fixupx.com{uri.LocalPath}";
-                return (UrlType.AutoText, newUri);
+                return (UrlType.Twitter, url);
             if (host.EndsWith("instagram.com"))
-                var newUri = $"https://ddinstagram.com{uri.LocalPath}";
-                return (UrlType.AutoText, newUri);
-            if (host.EndsWith("bsky.app"))
-                var newUri = $"https://fxbsky.app{uri.LocalPath}";
-                return (UrlType.AutoText, newUri);
+                return (UrlType.Instagram, url);
             if (host.EndsWith("reddit.com"))
                 return (UrlType.Reddit, url);
             if (host.EndsWith("youtube.com") && urlText.Contains("youtube.com/shorts"))
                 return (UrlType.Youtube, url);
-            if (host.EndsWith("fxtwitter.com") ||
-                host.EndsWith("girlcockx.com") ||
-                host.EndsWith("fixupx.com") ||
-                host.EndsWith("ddinstagram.com") ||
-                host.EndsWith("kkinstagram.com") ||
-                host.EndsWith("fxbsky.app") ||
-                host.Equals("coub.com"))
-                return (UrlType.AutoText, url);
         }
 
         return (UrlType.NotFound, null);

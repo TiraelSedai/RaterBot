@@ -5,11 +5,12 @@ namespace RaterBot;
 internal enum UrlType
 {
     NotFound,
+    Instagram,
+    Twitter,
     TikTok,
     Vk,
     Reddit,
     Youtube,
-    AutoText,
 }
 
 internal static class DownloadHelper
