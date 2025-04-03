@@ -5,19 +5,18 @@ namespace RaterBot;
 internal enum UrlType
 {
     NotFound,
-    Instagram,
-    Twitter,
     TikTok,
     Vk,
     Reddit,
     Youtube,
+    EmbedableLink
 }
 
 internal static class DownloadHelper
 {
     private static readonly string _tmp = Path.GetTempPath();
 
-    public static async Task<string[]> DownloadGalleryDl(Uri url)
+    public static async Task<string[]> DownloadGalleryDl(string url)
     {
         var args = $"\"{url}\" --cookies db/cookies.txt -d {_tmp} -o browser=firefox";
 
@@ -73,7 +72,7 @@ internal static class DownloadHelper
                 }
         });
 
-    public static string? DownloadYtDlp(Uri url, UrlType urlType)
+    public static string? DownloadYtDlp(string url, UrlType urlType)
     {
         var ext = urlType == UrlType.Youtube ? "webm" : "mp4";
         var file = Path.Combine(_tmp, $"{Guid.NewGuid()}.{ext}");

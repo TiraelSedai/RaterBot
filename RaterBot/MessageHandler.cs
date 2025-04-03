@@ -131,13 +131,9 @@ internal sealed class MessageHandler
                         case UrlType.Reddit:
                             await HandleGalleryDl(update, url!);
                             break;
-                        case UrlType.Instagram:
-                            await HandleInstagram(update, url!);
+                        case UrlType.EmbedableLink:
+                            await HandleEmbedableLink(update, url!);
                             break;
-                        case UrlType.Twitter:
-                            await HandleTwitter(update, url!);
-                            break;
-                        case UrlType.NotFound:
                         default:
                             break;
                     }
@@ -188,23 +184,20 @@ internal sealed class MessageHandler
         await _botClient.DeleteMessage(msg.Chat, msg.MessageId);
     }
 
-    private async Task HandleTwitter(Update update, Uri uri)
+    private async Task HandleEmbedableLink(Update update, string uri)
     {
         var msg = update.Message!;
         var from = msg.From!;
-        var newUri = $"https://fixupx.com{uri.LocalPath}";
-
         var newMessage = await _botClient.SendMessage(
             msg.Chat.Id,
-            $"{AtMentionUsername(from)}:{Environment.NewLine}{newUri}",
+            $"{AtMentionUsername(from)}:{Environment.NewLine}{uri}",
             replyMarkup: TelegramHelper.NewPostIkm
         );
-
         InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
         await _botClient.DeleteMessage(msg.Chat, msg.MessageId);
     }
 
-    private static (UrlType, Uri?) FindSupportedSiteLink(Message msg)
+    private static (UrlType, string?) FindSupportedSiteLink(Message msg)
     {
         if (msg.Text == null || msg.Entities == null)
             return (UrlType.NotFound, null);
@@ -215,18 +208,25 @@ internal sealed class MessageHandler
             var urlText = msg.Text[entity.Offset..(entity.Offset + entity.Length)];
             var url = new Uri(urlText);
             var host = url.Host;
+            if (host.EndsWith("fxtwitter.com") ||
+                host.EndsWith("fixupx.com") ||
+                host.EndsWith("ddinstagram.com") ||
+                host.EndsWith("kkinstagram.com") ||
+                host.EndsWith("fxbsky.app") ||
+                host.Equals("coub.com"))
+                return (UrlType.EmbedableLink, url.ToString());
             if (host.EndsWith("tiktok.com"))
-                return (UrlType.TikTok, url);
+                return (UrlType.TikTok, url.ToString());
             if (host.EndsWith("vk.com"))
-                return (UrlType.Vk, url);
+                return (UrlType.Vk, url.ToString());
             if (host.EndsWith("twitter.com") || host.Equals("x.com"))
-                return (UrlType.Twitter, url);
+                return (UrlType.EmbedableLink, $"https://fixupx.com{url.LocalPath}");
             if (host.EndsWith("instagram.com"))
-                return (UrlType.Instagram, url);
+                return (UrlType.EmbedableLink, $"https://ddinstagram.com{url.LocalPath}");
             if (host.EndsWith("reddit.com"))
-                return (UrlType.Reddit, url);
+                return (UrlType.Reddit, url.ToString());
             if (host.EndsWith("youtube.com") && urlText.Contains("youtube.com/shorts"))
-                return (UrlType.Youtube, url);
+                return (UrlType.Youtube, url.ToString());
         }
 
         return (UrlType.NotFound, null);
@@ -585,7 +585,7 @@ internal sealed class MessageHandler
             }
     }
 
-    private async Task HandleGalleryDl(Update update, Uri link)
+    private async Task HandleGalleryDl(Update update, string link)
     {
         _logger.LogInformation("New HandleGalleryDl message");
 
@@ -671,7 +671,7 @@ internal sealed class MessageHandler
         }
     }
 
-    private async Task HandleYtDlp(Update update, Uri videoLink, UrlType urlType)
+    private async Task HandleYtDlp(Update update, string videoLink, UrlType urlType)
     {
         _logger.LogInformation("New YtDlp supported message");
 
