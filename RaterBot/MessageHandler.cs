@@ -137,6 +137,9 @@ internal sealed class MessageHandler
                         case UrlType.Twitter:
                             await HandleTwitter(update, url!);
                             break;
+                        case UrlType.AutoText:
+                            await HandleAutoText(update, url!);
+                            break;
                         case UrlType.NotFound:
                         default:
                             break;
@@ -204,6 +207,21 @@ internal sealed class MessageHandler
         await _botClient.DeleteMessage(msg.Chat, msg.MessageId);
     }
 
+    private async Task HandleAutoText(Update update, Uri uri)
+    {
+        var msg = update.Message!;
+        var from = msg.From!;
+
+        var newMessage = await _botClient.SendMessage(
+            msg.Chat.Id,
+            $"{AtMentionUsername(from)}:{Environment.NewLine}{uri.AbsoluteUri}",
+            replyMarkup: TelegramHelper.NewPostIkm
+        );
+
+        InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+        await _botClient.DeleteMessage(msg.Chat, msg.MessageId);
+    }
+
     private static (UrlType, Uri?) FindSupportedSiteLink(Message msg)
     {
         if (msg.Text == null || msg.Entities == null)
@@ -227,6 +245,12 @@ internal sealed class MessageHandler
                 return (UrlType.Reddit, url);
             if (host.EndsWith("youtube.com") && urlText.Contains("youtube.com/shorts"))
                 return (UrlType.Youtube, url);
+            if (host.EndsWith("fxtwitter.com") ||
+                host.EndsWith("girlcockx.com") ||
+                host.EndsWith("fixupx.com") ||
+                host.EndsWith("ddinstagram.com") ||
+                host.Equals("coub.com"))
+                return (UrlType.AutoText, url);
         }
 
         return (UrlType.NotFound, null);

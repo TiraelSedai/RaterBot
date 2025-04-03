@@ -11,6 +11,7 @@ internal enum UrlType
     Vk,
     Reddit,
     Youtube,
+    AutoText,
 }
 
 internal static class DownloadHelper
