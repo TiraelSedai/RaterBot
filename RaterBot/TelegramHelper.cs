@@ -1,4 +1,5 @@
-﻿using System.Runtime.Caching;
+﻿using System.Globalization;
+using System.Runtime.Caching;
 using System.Text;
 using Telegram.Bot;
 using Telegram.Bot.Exceptions;
@@ -71,9 +72,17 @@ namespace RaterBot
             return who;
         }
 
+        private static string RemoveZalgo(string input)
+        {
+            var normalized = input.Normalize(NormalizationForm.FormD);
+            var cleaned = new string([.. normalized.Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)]);
+            return cleaned.Normalize(NormalizationForm.FormC);
+        }
+
         public static string UserEscaped(User user)
         {
             var who = GetFirstLastName(user);
+            who = RemoveZalgo(who);
             var whoEscaped = new StringBuilder(who.Length);
             foreach (var c in who)
             {
