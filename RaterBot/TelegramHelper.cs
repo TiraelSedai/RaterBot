@@ -75,8 +75,7 @@ namespace RaterBot
         private static string RemoveZalgo(string input)
         {
             var normalized = input.Normalize(NormalizationForm.FormD);
-            var cleaned = new string([.. normalized.Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)]);
-            return cleaned.Normalize(NormalizationForm.FormC);
+            return new string([.. normalized.Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)]);
         }
 
         public static string UserEscaped(User user)
