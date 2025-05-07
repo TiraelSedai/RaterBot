@@ -74,7 +74,7 @@ namespace RaterBot
 
         private static string RemoveZalgo(string input)
         {
-            var normalized = input.Normalize(NormalizationForm.FormD);
+            var normalized = input.Normalize(NormalizationForm.FormD).Normalize(NormalizationForm.FormC);
             return new string([.. normalized.Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)]);
         }
 
