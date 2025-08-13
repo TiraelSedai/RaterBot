@@ -9,7 +9,7 @@ internal enum UrlType
     Vk,
     Reddit,
     Youtube,
-    EmbedableLink
+    EmbedableLink,
 }
 
 internal static class DownloadHelper

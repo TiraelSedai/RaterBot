@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Text;
 using LinqToDB;
 using RaterBot.Database;
@@ -208,12 +208,14 @@ internal sealed class MessageHandler
             var urlText = msg.Text[entity.Offset..(entity.Offset + entity.Length)];
             var url = new Uri(urlText);
             var host = url.Host;
-            if (host.EndsWith("fxtwitter.com") ||
-                host.EndsWith("fixupx.com") ||
-                host.EndsWith("ddinstagram.com") ||
-                host.EndsWith("kkinstagram.com") ||
-                host.EndsWith("fxbsky.app") ||
-                host.Equals("coub.com"))
+            if (
+                host.EndsWith("fxtwitter.com")
+                || host.EndsWith("fixupx.com")
+                || host.EndsWith("ddinstagram.com")
+                || host.EndsWith("kkinstagram.com")
+                || host.EndsWith("fxbsky.app")
+                || host.Equals("coub.com")
+            )
                 return (UrlType.EmbedableLink, url.ToString());
             if (host.EndsWith("tiktok.com"))
                 return (UrlType.TikTok, url.ToString());

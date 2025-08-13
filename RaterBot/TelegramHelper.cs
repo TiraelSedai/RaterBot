@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Runtime.Caching;
 using System.Text;
 using Telegram.Bot;

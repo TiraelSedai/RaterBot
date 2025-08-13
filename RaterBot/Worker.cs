@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using LinqToDB.Data;
 using RaterBot.Database;
 using Telegram.Bot;

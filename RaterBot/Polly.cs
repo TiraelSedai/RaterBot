@@ -1,4 +1,4 @@
-﻿using Polly;
+using Polly;
 using Polly.Fallback;
 using Polly.Retry;
 using Telegram.Bot.Exceptions;
