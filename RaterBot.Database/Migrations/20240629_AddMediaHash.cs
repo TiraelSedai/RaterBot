@@ -2,7 +2,7 @@ using FluentMigrator;
 
 namespace RaterBot.Database.Migrations;
 
-[Migration(20240629)]
+[Migration(20240629000000)]
 public class AddMediaHash : Migration
 {
     public override void Up()
