@@ -2,7 +2,7 @@
 
 namespace RaterBot.Database.Migrations
 {
-    [Migration(202312038223400)]
+    [Migration(20231203822340)]
     public sealed class AddReplyMessage : Migration
     {
         public override void Up()

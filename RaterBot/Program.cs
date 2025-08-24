@@ -47,6 +47,8 @@ using (var scope = host.Services.CreateScope())
         dbc.Execute("PRAGMA foreign_keys = ON;");
         dbc.Execute("PRAGMA synchronous = NORMAL;");
         dbc.Execute("PRAGMA temp_store = memory;");
+        dbc.Execute("UPDATE \"VersionInfo\" SET \"Version\" = 20240629000000 WHERE \"Version\" = 20240629;");
+        dbc.Execute("UPDATE \"VersionInfo\" SET \"Version\" = 20231203822340 WHERE \"Version\" = 202312038223400;");
     }
 
     var migrationRunner = scope.ServiceProvider.GetRequiredService<IMigrationRunner>();
