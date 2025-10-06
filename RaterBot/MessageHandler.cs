@@ -168,22 +168,6 @@ internal sealed class MessageHandler
         }
     }
 
-    private async Task HandleInstagram(Update update, Uri uri)
-    {
-        var msg = update.Message!;
-        var from = msg.From!;
-        var newUri = $"https://ddinstagram.com{uri.LocalPath}";
-
-        var newMessage = await _botClient.SendMessage(
-            msg.Chat.Id,
-            $"{AtMentionUsername(from)}:{Environment.NewLine}{newUri}",
-            replyMarkup: TelegramHelper.NewPostIkm
-        );
-
-        InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
-        await _botClient.DeleteMessage(msg.Chat, msg.MessageId);
-    }
-
     private async Task HandleEmbedableLink(Update update, string uri)
     {
         var msg = update.Message!;
@@ -224,7 +208,7 @@ internal sealed class MessageHandler
             if (host.EndsWith("twitter.com") || host.Equals("x.com"))
                 return (UrlType.EmbedableLink, $"https://fixupx.com{url.LocalPath}");
             if (host.EndsWith("instagram.com"))
-                return (UrlType.EmbedableLink, $"https://ddinstagram.com{url.LocalPath}");
+                return (UrlType.EmbedableLink, $"https://kkinstagram.com{url.LocalPath}");
             if (host.EndsWith("reddit.com"))
                 return (UrlType.Reddit, url.ToString());
             if (host.EndsWith("youtube.com") && urlText.Contains("youtube.com/shorts"))
