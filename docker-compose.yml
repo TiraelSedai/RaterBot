@@ -1,10 +1,10 @@
-version: "2.1"
-
 services:
   raterbot:
+    build: .
     image: raterbot
     container_name: raterbot
     volumes:
       - testmeme:/app/db
+
 volumes:
   testmeme:
