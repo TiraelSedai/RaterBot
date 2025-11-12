@@ -9,8 +9,6 @@ In order to download from Reddit 18+ or Insta consistently, add cookies extracte
 ### Hosted by me
 Just add [@mediarater_bot](https://t.me/mediarater_bot) to your group and give it admin permissions.
 
-Bot is hosted in Netherlands so for example for TikTok download it will only work for whatever is available in this region.
-
 ### Self-hosted
 #### Docker
 Get from [GitHub Container Registry](https://github.com/TiraelSedai/RaterBot/pkgs/container/raterbot) or build from sources.
