@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net9</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="FluentMigrator" Version="7.1.0" />
-    <PackageReference Include="linq2db" Version="5.4.1" />
+    <PackageReference Include="linq2db" Version="5.4.1.9" />
   </ItemGroup>
 </Project>
