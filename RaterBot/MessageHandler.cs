@@ -498,11 +498,9 @@ internal sealed class MessageHandler
             .LoadWith(p => p.Interactions)
             .ToList();
 
-        var periodDescription = $"{startDate!.Value:yyyy-MM-dd} — {endDate!.Value.AddDays(-1):yyyy-MM-dd}";
-
         if (!posts.SelectMany(p => p.Interactions).Any())
         {
-            await _botClient.SendMessage(chat.Id, $"Не найдено заплюсованных постов за период {periodDescription}");
+            await _botClient.SendMessage(chat.Id, $"Не найдено заплюсованных постов за период");
             _logger.LogInformation($"{nameof(HandleTopPostsCustom)} - no up-voted posts, skipping");
             return;
         }
@@ -520,7 +518,7 @@ internal sealed class MessageHandler
         var userIdToUser = await TelegramHelper.GetTelegramUsers(chat, userIds, _botClient);
 
         var message = new StringBuilder(1024);
-        message.Append($"Топ постов за период {periodDescription}:");
+        message.Append($"Топ постов за период:");
         message.Append(Environment.NewLine);
         var i = 0;
         foreach (var item in topPosts)
@@ -566,11 +564,9 @@ internal sealed class MessageHandler
             .LoadWith(p => p.Interactions)
             .ToList();
 
-        var periodDescription = $"{startDate!.Value:yyyy-MM-dd} — {endDate!.Value.AddDays(-1):yyyy-MM-dd}";
-
         if (!posts.SelectMany(x => x.Interactions).Any(i => i.Reaction))
         {
-            await _botClient.SendMessage(chat.Id, $"Не найдено заплюсованных постов за период {periodDescription}");
+            await _botClient.SendMessage(chat.Id, $"Не найдено заплюсованных постов за период");
             return;
         }
 
@@ -596,7 +592,7 @@ internal sealed class MessageHandler
         var userIdToUser = await TelegramHelper.GetTelegramUsers(chat, userIds.ToArray(), _botClient);
 
         var message = new StringBuilder(1024);
-        message.Append($"Топ авторов за период {periodDescription}:");
+        message.Append("Топ авторов за период:");
         message.Append(Environment.NewLine);
         var i = 0;
         foreach (var item in topAuthors)
