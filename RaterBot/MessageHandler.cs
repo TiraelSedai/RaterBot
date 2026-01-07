@@ -82,6 +82,18 @@ internal sealed class MessageHandler
                         return;
                     }
 
+                    if (StartsWithBotCommand(me.Username, msg.Text, "/top_posts_custom"))
+                    {
+                        await HandleTopPostsCustom(update, msg.Text);
+                        return;
+                    }
+
+                    if (StartsWithBotCommand(me.Username, msg.Text, "/top_authors_custom"))
+                    {
+                        await HandleTopAuthorsCustom(update, msg.Text);
+                        return;
+                    }
+
                     if (IsBotCommand(me.Username, msg.Text, "/controversial_month"))
                     {
                         await HandleControversial(update, Period.Month);
@@ -439,8 +451,173 @@ internal sealed class MessageHandler
         _botClient.ReplyAndDeleteLater(update.Message, message.ToString(), _logger, ParseMode.MarkdownV2);
     }
 
+    private (DateTime? startDate, DateTime? endDate, string? error) ParseCustomDateRange(string msgText)
+    {
+        var parts = msgText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3)
+            return (null, null, "Использование: /command YYYY-MM-DD YYYY-MM-DD");
+
+        if (!DateTime.TryParseExact(parts[1], "yyyy-MM-dd", null, System.Globalization.DateTimeStyles.None, out var startDate))
+            return (null, null, $"Неправильный формат первой даты: {parts[1]}. Используйте формат YYYY-MM-DD");
+
+        if (!DateTime.TryParseExact(parts[2], "yyyy-MM-dd", null, System.Globalization.DateTimeStyles.None, out var endDate))
+            return (null, null, $"Неправильный формат второй даты: {parts[2]}. Используйте формат YYYY-MM-DD");
+
+        if (startDate > endDate)
+            return (null, null, "Первая дата должна быть раньше или равна второй дате");
+
+        endDate = endDate.AddDays(1);
+
+        return (startDate, endDate, null);
+    }
+
+    private async Task HandleTopPostsCustom(Update update, string msgText)
+    {
+        Debug.Assert(update.Message != null);
+        var chat = update.Message.Chat;
+
+        var (startDate, endDate, error) = ParseCustomDateRange(msgText);
+        if (error != null)
+        {
+            _botClient.ReplyAndDeleteLater(update.Message, error, _logger);
+            return;
+        }
+
+        if (chat.Type != ChatType.Supergroup && string.IsNullOrWhiteSpace(chat.Username))
+        {
+            await _botClient.SendMessage(
+                chat.Id,
+                "Этот чат не является супергруппой и не имеет имени: нет возможности оставлять ссылки на посты"
+            );
+            _logger.LogInformation($"{nameof(HandleTopPostsCustom)} - unable to link top posts, skipping");
+            return;
+        }
+
+        var posts = _sqliteDb
+            .Posts.Where(p => p.ChatId == chat.Id && p.Timestamp >= startDate!.Value && p.Timestamp < endDate!.Value)
+            .LoadWith(p => p.Interactions)
+            .ToList();
+
+        var periodDescription = $"{startDate!.Value:yyyy-MM-dd} — {endDate!.Value.AddDays(-1):yyyy-MM-dd}";
+
+        if (!posts.SelectMany(p => p.Interactions).Any())
+        {
+            await _botClient.SendMessage(chat.Id, $"Не найдено заплюсованных постов за период {periodDescription}");
+            _logger.LogInformation($"{nameof(HandleTopPostsCustom)} - no up-voted posts, skipping");
+            return;
+        }
+
+        var weeksInPeriod = (int)Math.Ceiling((endDate!.Value - startDate!.Value).TotalDays / 7.0);
+        var takeCount = Math.Clamp(weeksInPeriod, 10, 50);
+
+        var topPosts = posts
+            .Select(p => new { Post = p, Likes = p.Interactions.Sum(i => i.Reaction ? 1 : -1) })
+            .OrderByDescending(x => x.Likes)
+            .Take(takeCount)
+            .ToList();
+
+        var userIds = topPosts.Select(x => x.Post.PosterId).Distinct().ToList();
+        var userIdToUser = await TelegramHelper.GetTelegramUsers(chat, userIds, _botClient);
+
+        var message = new StringBuilder(1024);
+        message.Append($"Топ постов за период {periodDescription}:");
+        message.Append(Environment.NewLine);
+        var i = 0;
+        foreach (var item in topPosts)
+        {
+            if (item.Likes <= 0)
+                break;
+
+            AppendPlace(message, i);
+            var knownUser = userIdToUser.TryGetValue(item.Post.PosterId, out var user);
+
+            message.Append("[От ");
+            if (knownUser)
+                message.Append($"{TelegramHelper.UserEscaped(user!)}](");
+            else
+                message.Append("покинувшего чат пользователя](");
+
+            var link = TelegramHelper.LinkToMessage(chat, item.Post.MessageId);
+            message.Append(link);
+            message.Append(") ");
+            if (item.Likes > 0)
+                message.Append("\\+");
+            message.Append(item.Likes);
+            i++;
+        }
+
+        _botClient.ReplyAndDeleteLater(update.Message, message.ToString(), _logger, ParseMode.MarkdownV2);
+    }
+
+    private async Task HandleTopAuthorsCustom(Update update, string msgText)
+    {
+        Debug.Assert(update.Message != null);
+        var chat = update.Message.Chat;
+
+        var (startDate, endDate, error) = ParseCustomDateRange(msgText);
+        if (error != null)
+        {
+            _botClient.ReplyAndDeleteLater(update.Message, error, _logger);
+            return;
+        }
+
+        var posts = _sqliteDb
+            .Posts.Where(p => p.ChatId == chat.Id && p.Timestamp >= startDate!.Value && p.Timestamp < endDate!.Value)
+            .LoadWith(p => p.Interactions)
+            .ToList();
+
+        var periodDescription = $"{startDate!.Value:yyyy-MM-dd} — {endDate!.Value.AddDays(-1):yyyy-MM-dd}";
+
+        if (!posts.SelectMany(x => x.Interactions).Any(i => i.Reaction))
+        {
+            await _botClient.SendMessage(chat.Id, $"Не найдено заплюсованных постов за период {periodDescription}");
+            return;
+        }
+
+        var postWithLikes = posts.Select(p => new { Post = p, Likes = p.Interactions.Sum(i => i.Reaction ? 1 : -1) });
+
+        var weeksInPeriod = (int)Math.Ceiling((endDate!.Value - startDate!.Value).TotalDays / 7.0);
+        var takeCount = Math.Clamp(weeksInPeriod, 10, 50);
+
+        var topAuthors = postWithLikes
+            .GroupBy(x => x.Post.PosterId)
+            .Select(g => new
+            {
+                PosterId = g.Key,
+                Likes = g.Sum(x => x.Likes),
+                HirschIndex = g.OrderByDescending(x => x.Likes).TakeWhile((x, iter) => x.Likes >= iter + 1).Count(),
+            })
+            .OrderByDescending(x => x.HirschIndex)
+            .ThenByDescending(x => x.Likes)
+            .Take(takeCount)
+            .ToList();
+
+        var userIds = topAuthors.Select(x => x.PosterId).ToList();
+        var userIdToUser = await TelegramHelper.GetTelegramUsers(chat, userIds.ToArray(), _botClient);
+
+        var message = new StringBuilder(1024);
+        message.Append($"Топ авторов за период {periodDescription}:");
+        message.Append(Environment.NewLine);
+        var i = 0;
+        foreach (var item in topAuthors)
+        {
+            AppendPlace(message, i);
+
+            var knownUser = userIdToUser.TryGetValue(item.PosterId, out var user);
+            message.Append(knownUser ? TelegramHelper.GetFirstLastName(user!) : "покинувший чат пользователь");
+            message.Append($" очков: {item.HirschIndex}, апвоутов: {item.Likes}");
+
+            i++;
+        }
+
+        _botClient.ReplyAndDeleteLater(update.Message, message.ToString(), _logger);
+    }
+
     private static bool IsBotCommand(string username, string? msgText, string command) =>
         msgText != null && (msgText == command || msgText == $"{command}@{username}");
+
+    private static bool StartsWithBotCommand(string username, string? msgText, string command) =>
+        msgText != null && (msgText.StartsWith(command + " ") || msgText.StartsWith($"{command}@{username} ") || msgText == command || msgText == $"{command}@{username}");
 
     private static void AppendPlace(StringBuilder stringBuilder, int i)
     {
