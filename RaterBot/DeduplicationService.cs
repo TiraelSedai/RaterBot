@@ -3,6 +3,7 @@ using System.Threading.Channels;
 using CoenM.ImageHash;
 using CoenM.ImageHash.HashAlgorithms;
 using LinqToDB;
+using Microsoft.Extensions.DependencyInjection;
 using RaterBot.Database;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -18,18 +19,18 @@ internal sealed class DeduplicationService
     private readonly TimeSpan _deduplicationWindow = TimeSpan.FromDays(35);
     private readonly ILogger<DeduplicationService> _logger;
     private readonly ITelegramBotClient _bot;
-    private readonly SqliteDb _sqliteDb;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly PerceptualHash _hashAlgo = new();
 
     record WorkItem(string PhotoFileId, Chat Chat, MessageId MessageId);
 
     private readonly Channel<WorkItem> _channel = Channel.CreateUnbounded<WorkItem>(new UnboundedChannelOptions { SingleReader = true });
 
-    public DeduplicationService(ILogger<DeduplicationService> logger, ITelegramBotClient bot, SqliteDb sqliteDb)
+    public DeduplicationService(ILogger<DeduplicationService> logger, ITelegramBotClient bot, IServiceScopeFactory scopeFactory)
     {
         _logger = logger;
         _bot = bot;
-        _sqliteDb = sqliteDb;
+        _scopeFactory = scopeFactory;
         Task.Run(WorkLoop);
     }
 
@@ -54,8 +55,11 @@ internal sealed class DeduplicationService
 
     private async Task CompareHashToExistingPosts(WorkItem item, ulong hash)
     {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SqliteDb>();
+
         var now = DateTime.UtcNow;
-        var compareTo = await _sqliteDb
+        var compareTo = await db
             .Posts.Where(x =>
                 x.ChatId == item.Chat.Id
                 && x.MessageId != item.MessageId.Id
@@ -69,7 +73,6 @@ internal sealed class DeduplicationService
         {
             var candidateHash = JsonSerializer.Deserialize(candidate.MediaHash!, SourceGenerationContext.Default.ImageHash);
             var similarityPercent = CompareHash.Similarity(hash, candidateHash!.ImgHash);
-            // _logger.LogDebug("Candidate similarity {SimilarityPercent}%", similarityPercent);
             if (similarityPercent < SimilarityThreshold)
                 continue;
             _logger.LogInformation("Found possible duplicate");
@@ -90,7 +93,11 @@ internal sealed class DeduplicationService
         _logger.LogDebug("Image read ok");
         var hash = _hashAlgo.Hash(image);
         var imageHash = JsonSerializer.Serialize(new ImageHash(hash), SourceGenerationContext.Default.ImageHash);
-        await _sqliteDb
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SqliteDb>();
+
+        await db
             .Posts.Where(x => x.ChatId == item.Chat.Id && x.MessageId == item.MessageId.Id)
             .Set(x => x.MediaHash, imageHash)
             .UpdateAsync();

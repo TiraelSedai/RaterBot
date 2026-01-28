@@ -1,6 +1,7 @@
 using System.Numerics.Tensors;
 using System.Threading.Channels;
 using LinqToDB;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using RaterBot.Database;
@@ -24,7 +25,7 @@ internal sealed class VectorSearchService : IDisposable
     private readonly TimeSpan _deduplicationWindow = TimeSpan.FromDays(30);
     private readonly ILogger<VectorSearchService> _logger;
     private readonly ITelegramBotClient _bot;
-    private readonly SqliteDb _sqliteDb;
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly InferenceSession? _session;
     private readonly bool _isEnabled;
 
@@ -32,11 +33,11 @@ internal sealed class VectorSearchService : IDisposable
 
     private readonly Channel<WorkItem> _channel = Channel.CreateUnbounded<WorkItem>(new UnboundedChannelOptions { SingleReader = true });
 
-    public VectorSearchService(ILogger<VectorSearchService> logger, ITelegramBotClient bot, SqliteDb sqliteDb)
+    public VectorSearchService(ILogger<VectorSearchService> logger, ITelegramBotClient bot, IServiceScopeFactory scopeFactory)
     {
         _logger = logger;
         _bot = bot;
-        _sqliteDb = sqliteDb;
+        _scopeFactory = scopeFactory;
 
         var modelPath = Path.Combine(AppContext.BaseDirectory, "vision_model_quantized.onnx");
         if (!File.Exists(modelPath))
@@ -80,8 +81,11 @@ internal sealed class VectorSearchService : IDisposable
 
     private async Task CompareToExistingPosts(WorkItem item, float[] embedding)
     {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SqliteDb>();
+
         var now = DateTime.UtcNow;
-        var candidates = await _sqliteDb
+        var candidates = await db
             .Posts.Where(x =>
                 x.ChatId == item.Chat.Id
                 && x.MessageId != item.MessageId.Id
@@ -122,7 +126,10 @@ internal sealed class VectorSearchService : IDisposable
         var embedding = GetEmbedding(image);
         var embeddingBytes = FloatsToBytes(embedding);
 
-        await _sqliteDb
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SqliteDb>();
+
+        await db
             .Posts.Where(x => x.ChatId == item.Chat.Id && x.MessageId == item.MessageId.Id)
             .Set(x => x.ClipEmbedding, embeddingBytes)
             .UpdateAsync();
@@ -145,7 +152,6 @@ internal sealed class VectorSearchService : IDisposable
                 inputTensor[0, 1, y, x] = ((pixel.G / 255f) - Mean[1]) / Std[1];
                 inputTensor[0, 2, y, x] = ((pixel.B / 255f) - Mean[2]) / Std[2];
             }
-
 
         var inputs = new List<NamedOnnxValue> { NamedOnnxValue.CreateFromTensor("pixel_values", inputTensor) };
 

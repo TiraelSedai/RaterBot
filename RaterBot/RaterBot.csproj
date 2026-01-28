@@ -16,15 +16,14 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.*" />
     <PackageReference Include="FluentMigrator.Runner" Version="8.*" />
     <PackageReference Include="FluentMigrator.Runner.SQLite" Version="8.*" />
-    <PackageReference Include="Polly" Version="8.6.4" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.11" />
-    <PackageReference Include="System.Data.SQLite.Core" Version="1.0.119" />
+    <PackageReference Include="Polly" Version="8.*" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.*" />
+    <PackageReference Include="System.Data.SQLite.Core" Version="1.*" />
     <PackageReference Include="System.Drawing.Common" Version="10.*" />
     <PackageReference Include="System.Runtime.Caching" Version="10.*" />
-    <PackageReference Include="System.Text.Json" Version="10.*" />
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.20.1" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.*" />
     <PackageReference Include="System.Numerics.Tensors" Version="10.*" />
-    <PackageReference Include="Telegram.Bot" Version="22.7.2" />
+    <PackageReference Include="Telegram.Bot" Version="22.*" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\RaterBot.Database\RaterBot.Database.csproj" />
