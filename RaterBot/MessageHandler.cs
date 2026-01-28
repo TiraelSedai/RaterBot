@@ -16,18 +16,21 @@ internal sealed class MessageHandler
     private readonly ITelegramBotClient _botClient;
     private readonly ILogger<MessageHandler> _logger;
     private readonly DeduplicationService _deduplicationService;
+    private readonly VectorSearchService _vectorSearchService;
 
     public MessageHandler(
         ITelegramBotClient botClient,
         SqliteDb sqliteDb,
         ILogger<MessageHandler> logger,
-        DeduplicationService deduplicationService
+        DeduplicationService deduplicationService,
+        VectorSearchService vectorSearchService
     )
     {
         _sqliteDb = sqliteDb;
         _botClient = botClient;
         _logger = logger;
         _deduplicationService = deduplicationService;
+        _vectorSearchService = vectorSearchService;
     }
 
     public async Task HandleUpdate(User me, Update update)
@@ -613,7 +616,13 @@ internal sealed class MessageHandler
         msgText != null && (msgText == command || msgText == $"{command}@{username}");
 
     private static bool StartsWithBotCommand(string username, string? msgText, string command) =>
-        msgText != null && (msgText.StartsWith(command + " ") || msgText.StartsWith($"{command}@{username} ") || msgText == command || msgText == $"{command}@{username}");
+        msgText != null
+        && (
+            msgText.StartsWith(command + " ")
+            || msgText.StartsWith($"{command}@{username} ")
+            || msgText == command
+            || msgText == $"{command}@{username}"
+        );
 
     private static void AppendPlace(StringBuilder stringBuilder, int i)
     {
@@ -939,7 +948,10 @@ internal sealed class MessageHandler
             await _botClient.DeleteMessage(msg.Chat.Id, msg.MessageId);
             var photoFileId = msg.Photo?.FirstOrDefault()?.FileId;
             if (photoFileId != null)
+            {
                 _deduplicationService.Process(photoFileId, msg.Chat, newMessage);
+                _vectorSearchService.Process(photoFileId, msg.Chat, newMessage);
+            }
         }
         catch (Exception ex)
         {

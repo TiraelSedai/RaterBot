@@ -24,6 +24,7 @@ namespace RaterBot.Database
 		[Column("Timestamp"                                                                                       )] public DateTime Timestamp      { get; set; } // datetime
 		[Column("ReplyMessageId"                                                                                  )] public long?    ReplyMessageId { get; set; } // integer
 		[Column("MediaHash"                                                                                       )] public string?  MediaHash      { get; set; } // text(max)
+		[Column("ClipEmbedding"                                                                                   )] public byte[]?  ClipEmbedding  { get; set; } // blob
 
 		#region Associations
 		/// <summary>

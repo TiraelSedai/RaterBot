@@ -24,6 +24,7 @@ var host = Host.CreateDefaultBuilder(args)
             services.AddSingleton<Config>();
             services.AddSingleton<RaterBot.Polly>();
             services.AddSingleton<DeduplicationService>();
+            services.AddSingleton<VectorSearchService>();
             services
                 .AddFluentMigratorCore()
                 .ConfigureRunner(rb => rb.AddSQLite().WithGlobalConnectionString(connStr).ScanIn(typeof(Init).Assembly).For.Migrations())
