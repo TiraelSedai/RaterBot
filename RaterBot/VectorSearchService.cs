@@ -1,7 +1,6 @@
 using System.Numerics.Tensors;
 using System.Threading.Channels;
 using LinqToDB;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using RaterBot.Database;
@@ -15,9 +14,11 @@ namespace RaterBot;
 
 internal sealed class VectorSearchService : IDisposable
 {
-    private const float SimilarityThreshold = 0.92f;
+    private const float SimilarityThreshold = 0.95f;
     private const int ImageSize = 224;
     private const int EmbeddingDimension = 512;
+
+    private static readonly DateTime QuantCutoff = new(2026, 1, 29, 10, 0, 0, DateTimeKind.Utc);
 
     private static readonly float[] Mean = [0.48145466f, 0.4578275f, 0.40821073f];
     private static readonly float[] Std = [0.26862954f, 0.26130258f, 0.27577711f];
@@ -95,12 +96,12 @@ internal sealed class VectorSearchService : IDisposable
                 && x.Timestamp > now - _deduplicationWindow
             )
             .OrderByDescending(x => x.Timestamp)
-            .Select(x => new { x.MessageId, x.ClipEmbedding })
+            .Select(x => new { x.MessageId, x.ClipEmbedding, x.Timestamp })
             .ToListAsync();
 
         foreach (var candidate in candidates)
         {
-            var candidateEmbedding = BytesToFloats(candidate.ClipEmbedding!);
+            var candidateEmbedding = BytesToFloats(candidate.ClipEmbedding!, candidate.Timestamp);
             var similarity = TensorPrimitives.CosineSimilarity(embedding, candidateEmbedding);
 
             if (similarity < SimilarityThreshold)
@@ -115,18 +116,14 @@ internal sealed class VectorSearchService : IDisposable
 
     private async Task<float[]> CalculateAndWriteEmbedding(WorkItem item)
     {
-        _logger.LogDebug("CalculateAndWriteEmbedding");
-
         using var ms = new MemoryStream();
         await _bot.GetInfoAndDownloadFile(item.PhotoFileId, ms);
-        _logger.LogDebug("Image download ok");
 
         ms.Seek(0, SeekOrigin.Begin);
         using var image = Image.Load<Rgb24>(ms);
-        _logger.LogDebug("Image read ok");
 
         var embedding = GetEmbedding(image);
-        var embeddingBytes = FloatsToBytes(embedding);
+        var embeddingBytes = FloatsToInt8Bytes(embedding);
 
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SqliteDb>();
@@ -136,7 +133,7 @@ internal sealed class VectorSearchService : IDisposable
             .Set(x => x.ClipEmbedding, embeddingBytes)
             .UpdateAsync();
 
-        _logger.LogDebug("New CLIP embedding written to database");
+        _logger.LogDebug("New CLIP int8 embedding written to database");
         return embedding;
     }
 
@@ -170,18 +167,29 @@ internal sealed class VectorSearchService : IDisposable
         return embedding;
     }
 
-    private static byte[] FloatsToBytes(float[] floats)
+    private static byte[] FloatsToInt8Bytes(float[] floats)
     {
-        var bytes = new byte[floats.Length * sizeof(float)];
-        Buffer.BlockCopy(floats, 0, bytes, 0, bytes.Length);
+        var bytes = new byte[floats.Length];
+        for (var i = 0; i < floats.Length; i++)
+            bytes[i] = (byte)(sbyte)Math.Clamp((int)MathF.Round(floats[i] * 127f), -127, 127);
         return bytes;
     }
 
-    private static float[] BytesToFloats(byte[] bytes)
+    private static float[] BytesToFloats(byte[] bytes, DateTime timestamp)
     {
-        var floats = new float[bytes.Length / sizeof(float)];
-        Buffer.BlockCopy(bytes, 0, floats, 0, bytes.Length);
-        return floats;
+        if (timestamp < QuantCutoff)
+        {
+            var floats = new float[bytes.Length / sizeof(float)];
+            Buffer.BlockCopy(bytes, 0, floats, 0, bytes.Length);
+            return floats;
+        }
+        else
+        {
+            var floats = new float[bytes.Length];
+            for (var i = 0; i < bytes.Length; i++)
+                floats[i] = (sbyte)bytes[i] / 127f;
+            return floats;
+        }
     }
 
     public void Dispose()
