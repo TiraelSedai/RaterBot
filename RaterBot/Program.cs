@@ -23,7 +23,6 @@ var host = Host.CreateDefaultBuilder(args)
             ));
             services.AddSingleton<Config>();
             services.AddSingleton<RaterBot.Polly>();
-            services.AddSingleton<DeduplicationService>();
             services.AddSingleton<VectorSearchService>();
             services
                 .AddFluentMigratorCore()
@@ -48,6 +47,9 @@ using (var scope = host.Services.CreateScope())
         dbc.Execute("PRAGMA foreign_keys = ON;");
         dbc.Execute("PRAGMA synchronous = NORMAL;");
         dbc.Execute("PRAGMA temp_store = memory;");
+        dbc.Execute("PRAGMA busy_timeout = 5000;");
+        dbc.Execute("PRAGMA cache_size = -64000;");
+        dbc.Execute("PRAGMA mmap_size = 268435456;");
         dbc.Execute("UPDATE \"VersionInfo\" SET \"Version\" = 20240629000000 WHERE \"Version\" = 20240629;");
         dbc.Execute("UPDATE \"VersionInfo\" SET \"Version\" = 20231203822340 WHERE \"Version\" = 202312038223400;");
     }

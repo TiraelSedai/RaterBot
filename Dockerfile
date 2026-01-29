@@ -8,10 +8,13 @@ WORKDIR "/src/RaterBot"
 RUN dotnet publish "RaterBot.csproj" -c Release -o /app/publish
 
 FROM mcr.microsoft.com/dotnet/runtime:10.0
-RUN apt update && apt install -y apt-transport-https
+RUN apt update && apt install -y apt-transport-https curl
 RUN apt install -y ffmpeg && apt clean && apt autoremove
 WORKDIR /app
 COPY --from=build /app/publish .
+RUN mkdir -p /app/models && \
+    curl -L -o /app/models/vision_model_quantized.onnx \
+    https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/onnx/vision_model_quantized.onnx
 
 ENV UV_TOOL_BIN_DIR="/usr/local/bin"
 ENV UV_NO_CACHE=1

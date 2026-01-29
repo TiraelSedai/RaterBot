@@ -39,7 +39,9 @@ internal sealed class VectorSearchService : IDisposable
         _bot = bot;
         _scopeFactory = scopeFactory;
 
-        var modelPath = Path.Combine(AppContext.BaseDirectory, "vision_model_quantized.onnx");
+        var modelPath = "/app/models/vision_model_quantized.onnx";
+        if (!File.Exists(modelPath))
+            modelPath = Path.Combine(AppContext.BaseDirectory, "vision_model_quantized.onnx");
         if (!File.Exists(modelPath))
             modelPath = "vision_model_quantized.onnx";
 

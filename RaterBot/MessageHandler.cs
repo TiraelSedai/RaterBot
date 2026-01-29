@@ -15,21 +15,19 @@ internal sealed class MessageHandler
     private readonly SqliteDb _sqliteDb;
     private readonly ITelegramBotClient _botClient;
     private readonly ILogger<MessageHandler> _logger;
-    private readonly DeduplicationService _deduplicationService;
+
     private readonly VectorSearchService _vectorSearchService;
 
     public MessageHandler(
         ITelegramBotClient botClient,
         SqliteDb sqliteDb,
         ILogger<MessageHandler> logger,
-        DeduplicationService deduplicationService,
         VectorSearchService vectorSearchService
     )
     {
         _sqliteDb = sqliteDb;
         _botClient = botClient;
         _logger = logger;
-        _deduplicationService = deduplicationService;
         _vectorSearchService = vectorSearchService;
     }
 
@@ -949,7 +947,6 @@ internal sealed class MessageHandler
             var photoFileId = msg.Photo?.FirstOrDefault()?.FileId;
             if (photoFileId != null)
             {
-                _deduplicationService.Process(photoFileId, msg.Chat, newMessage);
                 _vectorSearchService.Process(photoFileId, msg.Chat, newMessage);
             }
         }
