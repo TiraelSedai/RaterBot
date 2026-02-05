@@ -14,7 +14,7 @@ namespace RaterBot;
 
 internal sealed class VectorSearchService : IDisposable
 {
-    private const float SimilarityThreshold = 0.95f;
+    private const float SimilarityThreshold = 0.96f;
     private const int ImageSize = 224;
     private const int EmbeddingDimension = 512;
 
@@ -98,10 +98,16 @@ internal sealed class VectorSearchService : IDisposable
             .OrderByDescending(x => x.Timestamp)
             .Select(x => new { x.MessageId, x.ClipEmbedding, x.Timestamp })
             .ToListAsync();
+        _logger.LogDebug("Found {Count} duplicate candidates", candidates.Count);
 
         foreach (var candidate in candidates)
         {
             var candidateEmbedding = BytesToFloats(candidate.ClipEmbedding!, candidate.Timestamp);
+            if (embedding.Length != candidateEmbedding.Length)
+            {
+                _logger.LogWarning("Different length");
+                continue;
+            }
             var similarity = TensorPrimitives.CosineSimilarity(embedding, candidateEmbedding);
 
             if (similarity < SimilarityThreshold)
