@@ -7,6 +7,9 @@ using RaterBot;
 using RaterBot.Database;
 using RaterBot.Database.Migrations;
 using Telegram.Bot;
+using Serilog;
+using Serilog.Events;
+using Serilog.Formatting.Compact;
 
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices(
@@ -24,6 +27,15 @@ var host = Host.CreateDefaultBuilder(args)
             services.AddSingleton<Config>();
             services.AddSingleton<RaterBot.Polly>();
             services.AddSingleton<VectorSearchService>();
+            services.AddSerilog(
+                (services, configuration) =>
+                    configuration
+                        .MinimumLevel.Debug()
+                        .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
+                        .Enrich.FromLogContext()
+                        .Enrich.FromLogContext()
+                        .WriteTo.Console(new CompactJsonFormatter())
+            );
             services
                 .AddFluentMigratorCore()
                 .ConfigureRunner(rb => rb.AddSQLite().WithGlobalConnectionString(connStr).ScanIn(typeof(Init).Assembly).For.Migrations())
