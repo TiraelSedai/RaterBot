@@ -72,10 +72,10 @@ namespace RaterBot
                         dbc.Execute("PRAGMA optimize;");
                         continue;
                     }
-                    _logger.LogDebug("got {Count} updates", updates.Length);
 
                     foreach (var update in updates)
                     {
+                        _logger.LogDebug("Got update {@Update}", update);
                         offset = update.Id + 1;
                         if (update.Type == UpdateType.Message)
                         {
