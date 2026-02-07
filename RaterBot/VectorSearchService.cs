@@ -18,6 +18,8 @@ internal sealed class VectorSearchService : IDisposable
     private const int ImageSize = 224;
     private const int EmbeddingDimension = 512;
 
+    private static readonly DateTime QuantCutoff = new(2026, 1, 29, 10, 0, 0, DateTimeKind.Utc);
+
     private static readonly float[] Mean = [0.48145466f, 0.4578275f, 0.40821073f];
     private static readonly float[] Std = [0.26862954f, 0.26130258f, 0.27577711f];
 
@@ -100,10 +102,10 @@ internal sealed class VectorSearchService : IDisposable
 
         foreach (var candidate in candidates)
         {
-            var candidateEmbedding = BytesToFloats(candidate.ClipEmbedding!);
+            var candidateEmbedding = BytesToFloats(candidate.ClipEmbedding!, candidate.Timestamp);
             if (embedding.Length != candidateEmbedding.Length)
             {
-                _logger.LogDebug("Different length vectors. target {EmbeddingLen} candidate {CandidateLne}", embedding.Length, candidateEmbedding.Length);
+                _logger.LogWarning("Different length vectors. target {EmbeddingLen} candidate {CandidateLne}", embedding.Length, candidateEmbedding.Length);
                 continue;
             }
             var similarity = TensorPrimitives.CosineSimilarity(embedding, candidateEmbedding);
@@ -179,12 +181,21 @@ internal sealed class VectorSearchService : IDisposable
         return bytes;
     }
 
-    private static float[] BytesToFloats(byte[] bytes)
+    private static float[] BytesToFloats(byte[] bytes, DateTime timestamp)
     {
-        var floats = new float[bytes.Length];
-        for (var i = 0; i < bytes.Length; i++)
-            floats[i] = (sbyte)bytes[i] / 127f;
-        return floats;
+        if (timestamp < QuantCutoff)
+        {
+            var floats = new float[bytes.Length / sizeof(float)];
+            Buffer.BlockCopy(bytes, 0, floats, 0, bytes.Length);
+            return floats;
+        }
+        else
+        {
+            var floats = new float[bytes.Length];
+            for (var i = 0; i < bytes.Length; i++)
+                floats[i] = (sbyte)bytes[i] / 127f;
+            return floats;
+        }
     }
 
     public void Dispose()

@@ -32,7 +32,6 @@ var host = Host.CreateDefaultBuilder(args)
                     configuration
                         .MinimumLevel.Debug()
                         .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
-                        .MinimumLevel.Override("LinqToDB.Data.DataConnection", LogEventLevel.Warning)
                         .Enrich.FromLogContext()
                         .Enrich.FromLogContext()
                         .WriteTo.Console(new CompactJsonFormatter())
