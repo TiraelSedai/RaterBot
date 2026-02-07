@@ -57,6 +57,7 @@ namespace RaterBot
             {
                 try
                 {
+                    _logger.LogDebug("before get updates");
                     var updates = await _botClient.GetUpdates(
                         offset,
                         100,
@@ -71,6 +72,7 @@ namespace RaterBot
                         dbc.Execute("PRAGMA optimize;");
                         continue;
                     }
+                    _logger.LogDebug("got {Count} updates", updates.Length);
 
                     foreach (var update in updates)
                     {
