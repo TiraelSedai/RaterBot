@@ -6,10 +6,10 @@ using LinqToDB.Data;
 using RaterBot;
 using RaterBot.Database;
 using RaterBot.Database.Migrations;
-using Telegram.Bot;
 using Serilog;
 using Serilog.Events;
 using Serilog.Formatting.Compact;
+using Telegram.Bot;
 
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices(
@@ -32,6 +32,7 @@ var host = Host.CreateDefaultBuilder(args)
                     configuration
                         .MinimumLevel.Debug()
                         .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
+                        .MinimumLevel.Override("LinqToDB.Data.DataConnection", LogEventLevel.Warning)
                         .Enrich.FromLogContext()
                         .Enrich.FromLogContext()
                         .WriteTo.Console(new CompactJsonFormatter())

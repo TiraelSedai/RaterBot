@@ -96,7 +96,12 @@ internal sealed class VectorSearchService : IDisposable
                 && x.Timestamp > now - _deduplicationWindow
             )
             .OrderByDescending(x => x.Timestamp)
-            .Select(x => new { x.MessageId, x.ClipEmbedding, x.Timestamp })
+            .Select(x => new
+            {
+                x.MessageId,
+                x.ClipEmbedding,
+                x.Timestamp,
+            })
             .ToListAsync();
         _logger.LogDebug("Found {Count} duplicate candidates", candidates.Count);
 
@@ -105,7 +110,11 @@ internal sealed class VectorSearchService : IDisposable
             var candidateEmbedding = BytesToFloats(candidate.ClipEmbedding!, candidate.Timestamp);
             if (embedding.Length != candidateEmbedding.Length)
             {
-                _logger.LogWarning("Different length vectors. target {EmbeddingLen} candidate {CandidateLne}", embedding.Length, candidateEmbedding.Length);
+                _logger.LogWarning(
+                    "Different length vectors. target {EmbeddingLen} candidate {CandidateLne}",
+                    embedding.Length,
+                    candidateEmbedding.Length
+                );
                 continue;
             }
             var similarity = TensorPrimitives.CosineSimilarity(embedding, candidateEmbedding);

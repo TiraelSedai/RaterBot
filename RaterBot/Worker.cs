@@ -57,7 +57,6 @@ namespace RaterBot
             {
                 try
                 {
-                    _logger.LogDebug("before get updates");
                     var updates = await _botClient.GetUpdates(
                         offset,
                         100,
@@ -75,7 +74,6 @@ namespace RaterBot
 
                     foreach (var update in updates)
                     {
-                        _logger.LogDebug("Got update {@Update}", update);
                         offset = update.Id + 1;
                         if (update.Type == UpdateType.Message)
                         {
