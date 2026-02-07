@@ -58,6 +58,7 @@ internal sealed class VectorSearchService : IDisposable
             _isEnabled = false;
             _logger.LogWarning("VectorSearchService disabled: vision_model_quantized.onnx not found");
         }
+        _logger.LogDebug("VectorSearchService ctor end");
     }
 
     public void Process(string photoFileId, Chat chat, MessageId messageId)
@@ -110,7 +111,7 @@ internal sealed class VectorSearchService : IDisposable
             var candidateEmbedding = BytesToFloats(candidate.ClipEmbedding!, candidate.Timestamp);
             if (embedding.Length != candidateEmbedding.Length)
             {
-                _logger.LogWarning(
+                _logger.LogDebug(
                     "Different length vectors. target {EmbeddingLen} candidate {CandidateLne}",
                     embedding.Length,
                     candidateEmbedding.Length
