@@ -9,7 +9,7 @@ RUN dotnet publish "RaterBot.csproj" -c Release -o /app/publish -r linux-x64
 
 FROM mcr.microsoft.com/dotnet/runtime:10.0
 RUN apt update && apt install -y apt-transport-https curl
-RUN apt install -y ffmpeg && apt clean && apt autoremove
+RUN apt install -y ffmpeg libgomp1 && apt clean && apt autoremove
 WORKDIR /app
 COPY --from=build /app/publish .
 RUN mkdir -p /app/models && \
