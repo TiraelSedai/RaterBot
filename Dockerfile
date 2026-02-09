@@ -5,25 +5,13 @@ COPY ["RaterBot.Database/RaterBot.Database.csproj", "RaterBot.Database/"]
 RUN dotnet restore "RaterBot/RaterBot.csproj" -r linux-x64
 COPY . .
 WORKDIR "/src/RaterBot"
-RUN dotnet publish "RaterBot.csproj" -c Release -o /app/publish
+RUN dotnet publish "RaterBot.csproj" -c Release -o /publish -r linux-x64
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
-RUN apt update && apt install -y apt-transport-https curl ffmpeg && apt clean
+RUN apt update && apt install -y apt-transport-https curl ffmpeg && apt clean && apt autoremove
 
 WORKDIR /app
-COPY --from=build /app/publish .
-
-# dirty hacks to get .net to find libonnxruntime.so
-RUN find . -name "libonnxruntime.so" -exec cp -v {} . \;
-RUN rm -f onnxruntime.dll
-RUN if [ ! -f "libonnxruntime.so" ]; then \
-    echo "ERROR: libonnxruntime.so NOT FOUND in /app root!"; \
-    echo "Files found:"; \
-    find . -name "*onnx*"; \
-    exit 1; \
-    else \
-    echo "SUCCESS: libonnxruntime.so is present."; \
-    fi
+COPY --from=build /publish .
 
 RUN mkdir -p /app/models && \
     curl -L -o /app/models/vision_model_quantized.onnx \
