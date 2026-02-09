@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Numerics.Tensors;
 using System.Threading.Channels;
 using LinqToDB;
@@ -48,10 +49,24 @@ internal sealed class VectorSearchService : IDisposable
 
         if (File.Exists(modelPath))
         {
-            _session = new InferenceSession(modelPath);
-            _isEnabled = true;
-            _logger.LogInformation("VectorSearchService enabled, model loaded from {ModelPath}", modelPath);
-            Task.Run(WorkLoop);
+            _logger.LogInformation("VectorSearchService: trying to load model from {ModelPath}", modelPath);
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                var loadTask = Task.Run(() => new InferenceSession(modelPath));
+                if (!loadTask.Wait(TimeSpan.FromSeconds(5)))
+                    throw new TimeoutException($"Model loading exceeded 5 seconds timeout");
+
+                _session = loadTask.Result;
+                _isEnabled = true;
+                _logger.LogInformation("VectorSearchService enabled, model loaded from {ModelPath} in {ElapsedMs}ms", modelPath, sw.ElapsedMilliseconds);
+                Task.Run(WorkLoop);
+            }
+            catch (Exception ex)
+            {
+                _isEnabled = false;
+                _logger.LogError(ex, "VectorSearchService disabled: failed to load model from {ModelPath} after {ElapsedMs}ms", modelPath, sw.ElapsedMilliseconds);
+            }
         }
         else
         {
