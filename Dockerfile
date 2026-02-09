@@ -5,11 +5,11 @@ COPY ["RaterBot.Database/RaterBot.Database.csproj", "RaterBot.Database/"]
 RUN dotnet restore "RaterBot/RaterBot.csproj" -r linux-x64
 COPY . .
 WORKDIR "/src/RaterBot"
-RUN dotnet publish "RaterBot.csproj" -c Release -o /app/publish
+RUN dotnet publish "RaterBot.csproj" -c Release -o /app/publish -r linux-x64
 
 FROM mcr.microsoft.com/dotnet/runtime:10.0
 RUN apt update && apt install -y apt-transport-https curl
-RUN apt install -y ffmpeg && apt clean && apt autoremove
+RUN apt install -y ffmpeg libgomp1 && apt clean && apt autoremove
 WORKDIR /app
 COPY --from=build /app/publish .
 RUN mkdir -p /app/models && \
@@ -22,4 +22,3 @@ RUN --mount=from=ghcr.io/astral-sh/uv:latest,source=/uv,target=/bin/uv \
     uv tool install yt-dlp && uv tool install gallery-dl
 
 ENTRYPOINT ["./RaterBot"]
-# totally not USER app
