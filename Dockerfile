@@ -12,6 +12,7 @@ RUN apt update && apt install -y apt-transport-https curl ffmpeg && apt clean &&
 
 WORKDIR /app
 COPY --from=build /publish .
+RUN rm -f /app/onnxruntime.dll
 
 RUN mkdir -p /app/models && \
     curl -L -o /app/models/vision_model_quantized.onnx \
