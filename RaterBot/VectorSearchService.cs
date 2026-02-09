@@ -59,13 +59,22 @@ internal sealed class VectorSearchService : IDisposable
 
                 _session = loadTask.Result;
                 _isEnabled = true;
-                _logger.LogInformation("VectorSearchService enabled, model loaded from {ModelPath} in {ElapsedMs}ms", modelPath, sw.ElapsedMilliseconds);
+                _logger.LogInformation(
+                    "VectorSearchService enabled, model loaded from {ModelPath} in {ElapsedMs}ms",
+                    modelPath,
+                    sw.ElapsedMilliseconds
+                );
                 Task.Run(WorkLoop);
             }
             catch (Exception ex)
             {
                 _isEnabled = false;
-                _logger.LogError(ex, "VectorSearchService disabled: failed to load model from {ModelPath} after {ElapsedMs}ms", modelPath, sw.ElapsedMilliseconds);
+                _logger.LogError(
+                    ex,
+                    "VectorSearchService disabled: failed to load model from {ModelPath} after {ElapsedMs}ms",
+                    modelPath,
+                    sw.ElapsedMilliseconds
+                );
             }
         }
         else
@@ -175,13 +184,13 @@ internal sealed class VectorSearchService : IDisposable
         var inputTensor = new DenseTensor<float>([1, 3, ImageSize, ImageSize]);
 
         for (var y = 0; y < ImageSize; y++)
-            for (var x = 0; x < ImageSize; x++)
-            {
-                var pixel = image[x, y];
-                inputTensor[0, 0, y, x] = ((pixel.R / 255f) - Mean[0]) / Std[0];
-                inputTensor[0, 1, y, x] = ((pixel.G / 255f) - Mean[1]) / Std[1];
-                inputTensor[0, 2, y, x] = ((pixel.B / 255f) - Mean[2]) / Std[2];
-            }
+        for (var x = 0; x < ImageSize; x++)
+        {
+            var pixel = image[x, y];
+            inputTensor[0, 0, y, x] = ((pixel.R / 255f) - Mean[0]) / Std[0];
+            inputTensor[0, 1, y, x] = ((pixel.G / 255f) - Mean[1]) / Std[1];
+            inputTensor[0, 2, y, x] = ((pixel.B / 255f) - Mean[2]) / Std[2];
+        }
 
         var inputs = new List<NamedOnnxValue> { NamedOnnxValue.CreateFromTensor("pixel_values", inputTensor) };
 
