@@ -62,8 +62,14 @@ using (var scope = host.Services.CreateScope())
         dbc.Execute("PRAGMA busy_timeout = 5000;");
         dbc.Execute("PRAGMA cache_size = -64000;");
         dbc.Execute("PRAGMA mmap_size = 268435456;");
-        dbc.Execute("UPDATE \"VersionInfo\" SET \"Version\" = 20240629000000 WHERE \"Version\" = 20240629;");
-        dbc.Execute("UPDATE \"VersionInfo\" SET \"Version\" = 20231203822340 WHERE \"Version\" = 202312038223400;");
+        try
+        {
+            dbc.Execute("UPDATE \"VersionInfo\" SET \"Version\" = 20240629000000 WHERE \"Version\" = 20240629;");
+            dbc.Execute("UPDATE \"VersionInfo\" SET \"Version\" = 20231203822340 WHERE \"Version\" = 202312038223400;");
+        }
+        catch
+        {
+        }
     }
 
     var migrationRunner = scope.ServiceProvider.GetRequiredService<IMigrationRunner>();

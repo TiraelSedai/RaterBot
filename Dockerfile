@@ -5,15 +5,18 @@ COPY ["RaterBot.Database/RaterBot.Database.csproj", "RaterBot.Database/"]
 RUN dotnet restore "RaterBot/RaterBot.csproj" -r linux-x64
 COPY . .
 WORKDIR "/src/RaterBot"
-RUN dotnet publish "RaterBot.csproj" -c Release -o /publish -r linux-x64
+RUN dotnet publish "RaterBot.csproj" -c Release -r linux-x64 -o /publish --self-contained false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
-RUN apt update && apt install -y apt-transport-https curl ffmpeg && apt clean && apt autoremove
+RUN apt update && apt install -y apt-transport-https curl ffmpeg libgomp1 && apt clean && apt autoremove
 
 WORKDIR /app
 COPY --from=build /publish .
-RUN rm -f /app/onnxruntime.dll
-ENV LD_LIBRARY_PATH=/app:$LD_LIBRARY_PATH
+# extremely dirty hack to have linux libraries in place instead of windows libraries
+RUN rm -f /app/onnxruntime.dll /app/onnxruntime_providers_shared.dll && \
+    ln -s /app/libonnxruntime.so /app/onnxruntime.dll && \
+    ln -s /app/libonnxruntime_providers_shared.so /app/onnxruntime_providers_shared.dll
+ENV LD_LIBRARY_PATH="/app:${LD_LIBRARY_PATH}"
 
 RUN mkdir -p /app/models && \
     curl -L -o /app/models/vision_model_quantized.onnx \
