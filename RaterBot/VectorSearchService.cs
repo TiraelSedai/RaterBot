@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Numerics.Tensors;
 using System.Threading.Channels;
 using LinqToDB;
+using LinqToDB.Async;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using RaterBot.Database;

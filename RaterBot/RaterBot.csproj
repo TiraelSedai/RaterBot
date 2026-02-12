@@ -11,7 +11,7 @@
     <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="linq2db.AspNet" Version="5.4.1" />
+    <PackageReference Include="linq2db.Extensions" Version="6.*" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.*" />
     <PackageReference Include="FluentMigrator.Runner" Version="8.*" />
     <PackageReference Include="FluentMigrator.Runner.SQLite" Version="8.*" />

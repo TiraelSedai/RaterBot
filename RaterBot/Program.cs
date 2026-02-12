@@ -1,7 +1,7 @@
 using FluentMigrator.Runner;
 using LinqToDB;
-using LinqToDB.AspNet;
-using LinqToDB.AspNet.Logging;
+using LinqToDB.Extensions.DependencyInjection;
+using LinqToDB.Extensions.Logging;
 using LinqToDB.Data;
 using RaterBot;
 using RaterBot.Database;
