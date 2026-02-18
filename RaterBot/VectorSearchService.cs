@@ -26,7 +26,10 @@ internal sealed partial class VectorSearchService : IDisposable
     private const float TextCoverageThreshold = 0.25f;
     private const float OcrSimilarityThreshold = 0.80f;
     private const float OcrMinConfidence = 55f;
-    private const float EastScoreThreshold = 0.5f;
+    private const float EastScoreThreshold = 0.35f;
+    private const float EastNmsThreshold = 0.30f;
+    private const int EastInputSize = 320;
+    private const int EastStride = 4;
     private const int OcrMinChars = 20;
     private const int ImageSize = 224;
     private const int EmbeddingDimension = 512;
@@ -66,6 +69,8 @@ internal sealed partial class VectorSearchService : IDisposable
         public float QualityScore =>
             (Success ? Math.Max(AvgConfidence, 0f) : 0f) + Math.Min(RawText.Length, 200) / 4f;
     }
+
+    internal readonly record struct EastCandidate(Rect2f Box, float Confidence);
 
     private readonly Channel<WorkItem> _channel = Channel.CreateUnbounded<WorkItem>(new UnboundedChannelOptions { SingleReader = true });
 
@@ -365,7 +370,7 @@ internal sealed partial class VectorSearchService : IDisposable
             using var blob = CvDnn.BlobFromImage(
                 src,
                 1.0,
-                new OpenCvSharp.Size(320, 320),
+                new OpenCvSharp.Size(EastInputSize, EastInputSize),
                 new Scalar(123.68, 116.78, 103.94),
                 swapRB: true,
                 crop: false
@@ -373,26 +378,273 @@ internal sealed partial class VectorSearchService : IDisposable
 
             _eastTextNet.SetInput(blob);
             using var scores = _eastTextNet.Forward("feature_fusion/Conv_7/Sigmoid");
-            var total = checked((int)scores.Total());
-            if (total == 0 || scores.Data == IntPtr.Zero)
+            using var geometry = _eastTextNet.Forward("feature_fusion/concat_3");
+            var scoreTotal = checked((int)scores.Total());
+            var geometryTotal = checked((int)geometry.Total());
+            if (scoreTotal == 0 || geometryTotal == 0 || scores.Data == IntPtr.Zero || geometry.Data == IntPtr.Zero)
                 return 0f;
 
-            var values = new float[total];
-            Marshal.Copy(scores.Data, values, 0, total);
+            var scoresData = new float[scoreTotal];
+            var geometryData = new float[geometryTotal];
+            Marshal.Copy(scores.Data, scoresData, 0, scoreTotal);
+            Marshal.Copy(geometry.Data, geometryData, 0, geometryTotal);
 
-            var textCells = 0;
-            for (var i = 0; i < values.Length; i++)
+            var featureMapSize = EastInputSize / EastStride;
+            var expectedScoreCount = featureMapSize * featureMapSize;
+            var expectedGeometryCount = expectedScoreCount * 5;
+            if (scoresData.Length != expectedScoreCount || geometryData.Length != expectedGeometryCount)
             {
-                if (values[i] >= EastScoreThreshold)
-                    textCells++;
+                _logger.LogWarning(
+                    "Unexpected EAST output dimensions. Scores={ScoresCount} Geometry={GeometryCount} ExpectedScores={ExpectedScores} ExpectedGeometry={ExpectedGeometry}",
+                    scoresData.Length,
+                    geometryData.Length,
+                    expectedScoreCount,
+                    expectedGeometryCount
+                );
+                return 0f;
             }
 
-            return textCells / (float)total;
+            var candidates = DecodeEastCandidates(
+                scoresData,
+                geometryData,
+                featureMapSize,
+                featureMapSize,
+                src.Width,
+                src.Height,
+                EastScoreThreshold
+            );
+            if (candidates.Count == 0)
+            {
+                _logger.LogDebug("EAST produced no candidates above confidence threshold {Threshold}", EastScoreThreshold);
+                return 0f;
+            }
+
+            var nmsBoxes = ApplyNms(candidates, EastNmsThreshold);
+            var coverage = ComputeUnionCoverageRatio(nmsBoxes, src.Width, src.Height);
+            _logger.LogDebug(
+                "EAST coverage computed from box union. RawBoxes={RawCount}, NmsBoxes={NmsCount}, Coverage={Coverage:P1}",
+                candidates.Count,
+                nmsBoxes.Count,
+                coverage
+            );
+            return coverage;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "EAST text detection failed. CLIP-only path will be used for this image.");
             return 0f;
+        }
+    }
+
+    internal static List<EastCandidate> DecodeEastCandidates(
+        IReadOnlyList<float> scores,
+        IReadOnlyList<float> geometry,
+        int featureMapHeight,
+        int featureMapWidth,
+        int imageWidth,
+        int imageHeight,
+        float scoreThreshold
+    )
+    {
+        var cellCount = featureMapHeight * featureMapWidth;
+        if (featureMapHeight <= 0 || featureMapWidth <= 0 || imageWidth <= 0 || imageHeight <= 0)
+            return [];
+        if (scores.Count != cellCount || geometry.Count != cellCount * 5)
+            return [];
+
+        var scaleX = imageWidth / (float)EastInputSize;
+        var scaleY = imageHeight / (float)EastInputSize;
+        var result = new List<EastCandidate>(Math.Min(512, cellCount));
+
+        for (var y = 0; y < featureMapHeight; y++)
+        for (var x = 0; x < featureMapWidth; x++)
+        {
+            var offset = y * featureMapWidth + x;
+            var confidence = scores[offset];
+            if (confidence < scoreThreshold)
+                continue;
+
+            var top = geometry[offset];
+            var right = geometry[cellCount + offset];
+            var bottom = geometry[cellCount * 2 + offset];
+            var left = geometry[cellCount * 3 + offset];
+            var angle = geometry[cellCount * 4 + offset];
+
+            var cos = MathF.Cos(angle);
+            var sin = MathF.Sin(angle);
+            var boxHeight = top + bottom;
+            var boxWidth = right + left;
+            if (boxWidth <= 0f || boxHeight <= 0f)
+                continue;
+
+            var offsetX = x * EastStride;
+            var offsetY = y * EastStride;
+            var endX = offsetX + cos * right + sin * bottom;
+            var endY = offsetY - sin * right + cos * bottom;
+            var startX = endX - boxWidth;
+            var startY = endY - boxHeight;
+
+            var x1 = Math.Clamp(MathF.Min(startX, endX) * scaleX, 0f, imageWidth);
+            var y1 = Math.Clamp(MathF.Min(startY, endY) * scaleY, 0f, imageHeight);
+            var x2 = Math.Clamp(MathF.Max(startX, endX) * scaleX, 0f, imageWidth);
+            var y2 = Math.Clamp(MathF.Max(startY, endY) * scaleY, 0f, imageHeight);
+            if (x2 <= x1 || y2 <= y1)
+                continue;
+
+            result.Add(new EastCandidate(new Rect2f(x1, y1, x2 - x1, y2 - y1), confidence));
+        }
+
+        return result;
+    }
+
+    internal static List<Rect2f> ApplyNms(IReadOnlyList<EastCandidate> candidates, float iouThreshold)
+    {
+        if (candidates.Count == 0)
+            return [];
+
+        var sortedIndexes = Enumerable.Range(0, candidates.Count)
+            .OrderByDescending(i => candidates[i].Confidence)
+            .ToArray();
+        var selected = new List<Rect2f>(candidates.Count);
+
+        foreach (var idx in sortedIndexes)
+        {
+            var candidate = candidates[idx].Box;
+            var shouldKeep = true;
+            for (var i = 0; i < selected.Count; i++)
+            {
+                if (ComputeIntersectionOverUnion(candidate, selected[i]) > iouThreshold)
+                {
+                    shouldKeep = false;
+                    break;
+                }
+            }
+
+            if (shouldKeep)
+                selected.Add(candidate);
+        }
+
+        return selected;
+    }
+
+    internal static float ComputeUnionCoverageRatio(IReadOnlyList<Rect2f> boxes, int imageWidth, int imageHeight)
+    {
+        if (boxes.Count == 0 || imageWidth <= 0 || imageHeight <= 0)
+            return 0f;
+
+        var events = new List<(float X, bool IsStart, float Y1, float Y2)>(boxes.Count * 2);
+        for (var i = 0; i < boxes.Count; i++)
+        {
+            var box = boxes[i];
+            var x1 = Math.Clamp(box.X, 0f, imageWidth);
+            var y1 = Math.Clamp(box.Y, 0f, imageHeight);
+            var x2 = Math.Clamp(box.X + box.Width, 0f, imageWidth);
+            var y2 = Math.Clamp(box.Y + box.Height, 0f, imageHeight);
+            if (x2 <= x1 || y2 <= y1)
+                continue;
+
+            events.Add((x1, true, y1, y2));
+            events.Add((x2, false, y1, y2));
+        }
+
+        if (events.Count == 0)
+            return 0f;
+
+        events.Sort((left, right) => left.X.CompareTo(right.X));
+
+        var active = new List<(float Y1, float Y2)>();
+        var previousX = events[0].X;
+        double area = 0d;
+
+        for (var i = 0; i < events.Count; i++)
+        {
+            var current = events[i];
+            var width = current.X - previousX;
+            if (width > 0f && active.Count > 0)
+            {
+                var height = ComputeMergedIntervalLength(active);
+                area += width * height;
+            }
+
+            if (current.IsStart)
+            {
+                active.Add((current.Y1, current.Y2));
+            }
+            else
+            {
+                RemoveFirstMatchingInterval(active, current.Y1, current.Y2);
+            }
+
+            previousX = current.X;
+        }
+
+        var totalArea = (double)imageWidth * imageHeight;
+        if (totalArea <= 0d)
+            return 0f;
+
+        return Math.Clamp((float)(area / totalArea), 0f, 1f);
+    }
+
+    private static float ComputeIntersectionOverUnion(Rect2f left, Rect2f right)
+    {
+        var interLeft = MathF.Max(left.X, right.X);
+        var interTop = MathF.Max(left.Y, right.Y);
+        var interRight = MathF.Min(left.X + left.Width, right.X + right.Width);
+        var interBottom = MathF.Min(left.Y + left.Height, right.Y + right.Height);
+        var interWidth = interRight - interLeft;
+        var interHeight = interBottom - interTop;
+        if (interWidth <= 0f || interHeight <= 0f)
+            return 0f;
+
+        var intersection = interWidth * interHeight;
+        var leftArea = left.Width * left.Height;
+        var rightArea = right.Width * right.Height;
+        var union = leftArea + rightArea - intersection;
+        if (union <= 0f)
+            return 0f;
+
+        return intersection / union;
+    }
+
+    private static float ComputeMergedIntervalLength(IReadOnlyList<(float Y1, float Y2)> intervals)
+    {
+        if (intervals.Count == 0)
+            return 0f;
+
+        var sorted = intervals.OrderBy(x => x.Y1).ToArray();
+        var length = 0f;
+        var currentStart = sorted[0].Y1;
+        var currentEnd = sorted[0].Y2;
+
+        for (var i = 1; i < sorted.Length; i++)
+        {
+            var (start, end) = sorted[i];
+            if (start <= currentEnd)
+            {
+                currentEnd = MathF.Max(currentEnd, end);
+                continue;
+            }
+
+            length += MathF.Max(0f, currentEnd - currentStart);
+            currentStart = start;
+            currentEnd = end;
+        }
+
+        length += MathF.Max(0f, currentEnd - currentStart);
+        return length;
+    }
+
+    private static void RemoveFirstMatchingInterval(List<(float Y1, float Y2)> intervals, float y1, float y2)
+    {
+        const float epsilon = 0.0001f;
+        for (var i = 0; i < intervals.Count; i++)
+        {
+            var interval = intervals[i];
+            if (MathF.Abs(interval.Y1 - y1) <= epsilon && MathF.Abs(interval.Y2 - y2) <= epsilon)
+            {
+                intervals.RemoveAt(i);
+                return;
+            }
         }
     }
 

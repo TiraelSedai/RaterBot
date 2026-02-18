@@ -1,4 +1,5 @@
 using Shouldly;
+using OpenCvSharp;
 using RaterBot;
 
 namespace RaterBot.Tests.Unit;
@@ -122,6 +123,84 @@ public class VectorSearchServiceTests
         );
 
         shouldUse.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void DecodeEastCandidates_DecodesSingleExpectedBox()
+    {
+        const int mapHeight = 2;
+        const int mapWidth = 2;
+        var scores = new float[mapHeight * mapWidth];
+        var geometry = new float[scores.Length * 5];
+
+        var offset = 3; // y = 1, x = 1
+        scores[offset] = 0.9f;
+        geometry[offset] = 1f; // top
+        geometry[scores.Length + offset] = 2f; // right
+        geometry[scores.Length * 2 + offset] = 1f; // bottom
+        geometry[scores.Length * 3 + offset] = 2f; // left
+        geometry[scores.Length * 4 + offset] = 0f; // angle
+
+        var candidates = VectorSearchService.DecodeEastCandidates(
+            scores,
+            geometry,
+            mapHeight,
+            mapWidth,
+            imageWidth: 320,
+            imageHeight: 320,
+            scoreThreshold: 0.35f
+        );
+
+        candidates.Count.ShouldBe(1);
+        var rect = candidates[0].Box;
+        Math.Abs(rect.X - 2f).ShouldBeLessThan(0.001f);
+        Math.Abs(rect.Y - 3f).ShouldBeLessThan(0.001f);
+        Math.Abs(rect.Width - 4f).ShouldBeLessThan(0.001f);
+        Math.Abs(rect.Height - 2f).ShouldBeLessThan(0.001f);
+    }
+
+    [Fact]
+    public void ApplyNms_RemovesHighlyOverlappingLowerConfidenceBox()
+    {
+        var candidates = new List<VectorSearchService.EastCandidate>
+        {
+            new(new Rect2f(0, 0, 10, 10), 0.95f),
+            new(new Rect2f(1, 1, 10, 10), 0.85f),
+            new(new Rect2f(20, 20, 5, 5), 0.70f),
+        };
+
+        var boxes = VectorSearchService.ApplyNms(candidates, iouThreshold: 0.30f);
+
+        boxes.Count.ShouldBe(2);
+        boxes.ShouldContain(x => Math.Abs(x.X) < 0.001f && Math.Abs(x.Y) < 0.001f);
+        boxes.ShouldContain(x => Math.Abs(x.X - 20f) < 0.001f && Math.Abs(x.Y - 20f) < 0.001f);
+    }
+
+    [Fact]
+    public void ComputeUnionCoverageRatio_HandlesOverlapWithoutDoubleCounting()
+    {
+        var boxes = new List<Rect2f>
+        {
+            new(0, 0, 10, 10),
+            new(5, 0, 10, 10),
+        };
+
+        var ratio = VectorSearchService.ComputeUnionCoverageRatio(boxes, imageWidth: 20, imageHeight: 10);
+
+        Math.Abs(ratio - 0.75f).ShouldBeLessThan(0.001f);
+    }
+
+    [Fact]
+    public void ComputeUnionCoverageRatio_ClampsOutOfBoundsToImageArea()
+    {
+        var boxes = new List<Rect2f>
+        {
+            new(-5, -5, 10, 10),
+        };
+
+        var ratio = VectorSearchService.ComputeUnionCoverageRatio(boxes, imageWidth: 10, imageHeight: 10);
+
+        Math.Abs(ratio - 0.25f).ShouldBeLessThan(0.001f);
     }
 
     private static byte[] FloatsToInt8Bytes(float[] floats)
