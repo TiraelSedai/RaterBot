@@ -8,7 +8,7 @@ WORKDIR "/src/RaterBot"
 RUN dotnet publish "RaterBot.csproj" -c Release -r linux-x64 -o /publish --self-contained false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
-RUN apt update && apt install -y apt-transport-https curl ffmpeg libgomp1 && apt clean && apt autoremove
+RUN apt update && apt install -y apt-transport-https curl ffmpeg libgomp1 tesseract-ocr tesseract-ocr-eng tesseract-ocr-rus && apt clean && apt autoremove
 
 WORKDIR /app
 COPY --from=build /publish .
@@ -19,8 +19,10 @@ RUN rm -f /app/onnxruntime.dll /app/onnxruntime_providers_shared.dll && \
 ENV LD_LIBRARY_PATH="/app:${LD_LIBRARY_PATH}"
 
 RUN mkdir -p /app/models && \
-    curl -L -o /app/models/vision_model_quantized.onnx \
-    https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/onnx/vision_model_quantized.onnx
+    curl -fL -o /app/models/vision_model_quantized.onnx \
+    https://huggingface.co/Xenova/clip-vit-base-patch32/resolve/main/onnx/vision_model_quantized.onnx && \
+    curl -fL -o /app/models/frozen_east_text_detection.pb \
+    https://github.com/oyyd/frozen_east_text_detection.pb/raw/master/frozen_east_text_detection.pb
 
 ENV UV_TOOL_BIN_DIR="/usr/local/bin"
 ENV UV_NO_CACHE=1

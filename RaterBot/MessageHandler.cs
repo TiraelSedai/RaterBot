@@ -944,7 +944,7 @@ internal sealed class MessageHandler
             );
             InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.Id);
             await _botClient.DeleteMessage(msg.Chat.Id, msg.MessageId);
-            var photoFileId = msg.Photo?.FirstOrDefault()?.FileId;
+            var photoFileId = SelectHighestResolutionPhotoFileId(msg.Photo);
             if (photoFileId != null)
             {
                 _vectorSearchService.Process(photoFileId, msg.Chat, newMessage);
@@ -988,6 +988,14 @@ internal sealed class MessageHandler
         }
 
         return $"От @{user.Username}";
+    }
+
+    internal static string? SelectHighestResolutionPhotoFileId(IReadOnlyCollection<PhotoSize>? photos)
+    {
+        if (photos == null || photos.Count == 0)
+            return null;
+
+        return photos.MaxBy(p => (long)p.Width * p.Height)?.FileId;
     }
 
     private static TimeSpan PeriodToTimeSpan(Period period)

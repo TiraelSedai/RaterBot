@@ -19,6 +19,20 @@ public class MessageHandlerTests : SqliteDbTestBase
     private readonly Mock<ITelegramBotClient> _mockBot = new();
     private readonly Mock<ILogger<MessageHandler>> _mockLogger = new();
 
+    [Fact]
+    public void SelectHighestResolutionPhotoFileId_PicksLargestVariant()
+    {
+        var photos = new[]
+        {
+            new PhotoSize { FileId = "small", Width = 320, Height = 180 },
+            new PhotoSize { FileId = "medium", Width = 640, Height = 360 },
+            new PhotoSize { FileId = "large", Width = 1280, Height = 720 },
+        };
+
+        var selected = MessageHandler.SelectHighestResolutionPhotoFileId(photos);
+        selected.ShouldBe("large");
+    }
+
     private VectorSearchService CreateVectorSearchService()
     {
         var services = new ServiceCollection();

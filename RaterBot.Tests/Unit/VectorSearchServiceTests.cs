@@ -71,6 +71,59 @@ public class VectorSearchServiceTests
         bytes.Length.ShouldBe(512);
     }
 
+    [Fact]
+    public void NormalizeOcrText_RemovesPunctuationAndCollapsesWhitespace()
+    {
+        var normalized = VectorSearchService.NormalizeOcrText("Hello,\nWORLD!!!   #42");
+        normalized.ShouldBe("hello world 42");
+    }
+
+    [Fact]
+    public void TokenDiceSimilarity_HighForCloseText()
+    {
+        var similarity = VectorSearchService.TokenDiceSimilarity(
+            "Breaking news from twitter screenshot",
+            "breaking news from Twitter screenshot dark theme"
+        );
+
+        similarity.ShouldBeGreaterThanOrEqualTo(0.80f);
+    }
+
+    [Fact]
+    public void TokenDiceSimilarity_LowForDifferentText()
+    {
+        var similarity = VectorSearchService.TokenDiceSimilarity(
+            "dogs and cats",
+            "sql migrations and telegram bots"
+        );
+
+        similarity.ShouldBeLessThan(0.80f);
+    }
+
+    [Fact]
+    public void ShouldUseOcrRoute_TrueForReliableTextHeavyInput()
+    {
+        var shouldUse = VectorSearchService.ShouldUseOcrRoute(
+            textCoverageRatio: 0.30f,
+            normalizedText: "this is enough normalized text for ocr mode",
+            ocrAvgConfidence: 72f
+        );
+
+        shouldUse.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void ShouldUseOcrRoute_FalseForLowConfidence()
+    {
+        var shouldUse = VectorSearchService.ShouldUseOcrRoute(
+            textCoverageRatio: 0.30f,
+            normalizedText: "this is enough normalized text for ocr mode",
+            ocrAvgConfidence: 40f
+        );
+
+        shouldUse.ShouldBeFalse();
+    }
+
     private static byte[] FloatsToInt8Bytes(float[] floats)
     {
         var bytes = new byte[floats.Length];

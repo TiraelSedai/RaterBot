@@ -24,6 +24,10 @@ namespace RaterBot.Database
 		[Column("Timestamp"                                                                                       )] public DateTime Timestamp      { get; set; } // datetime
 		[Column("ReplyMessageId"                                                                                  )] public long?    ReplyMessageId { get; set; } // integer
 		[Column("ClipEmbedding"                                                                                   )] public byte[]?  ClipEmbedding  { get; set; } // blob
+		[Column("TextCoverageRatio"                                                                               )] public double?  TextCoverageRatio { get; set; } // real
+		[Column("OcrTextNormalized"                                                                               )] public string?  OcrTextNormalized { get; set; } // text
+		[Column("OcrAvgConfidence"                                                                                )] public double?  OcrAvgConfidence { get; set; } // real
+		[Column("IsTextHeavy"                                                                                     )] public bool?    IsTextHeavy { get; set; } // integer
 
 		#region Associations
 		/// <summary>
