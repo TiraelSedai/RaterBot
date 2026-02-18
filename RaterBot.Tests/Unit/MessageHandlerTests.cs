@@ -33,6 +33,100 @@ public class MessageHandlerTests : SqliteDbTestBase
         selected.ShouldBe("large");
     }
 
+    [Fact]
+    public void SelectVectorMedia_PicksPhotoWhenAvailable()
+    {
+        var photos = new[]
+        {
+            new PhotoSize { FileId = "small", Width = 320, Height = 180 },
+            new PhotoSize { FileId = "large", Width = 1920, Height = 1080 },
+        };
+
+        var selected = MessageHandler.SelectVectorMedia(
+            photos,
+            new Video { FileId = "video-id" },
+            new Animation { FileId = "animation-id" },
+            new Document { FileId = "doc-id", MimeType = "video/mp4" }
+        );
+
+        selected.HasValue.ShouldBeTrue();
+        selected.Value.FileId.ShouldBe("large");
+        selected.Value.MediaKind.ShouldBe(VectorMediaKind.Image);
+    }
+
+    [Fact]
+    public void SelectVectorMedia_PicksVideo()
+    {
+        var selected = MessageHandler.SelectVectorMedia(
+            photos: null,
+            video: new Video { FileId = "video-id" },
+            animation: null,
+            document: null
+        );
+
+        selected.HasValue.ShouldBeTrue();
+        selected.Value.FileId.ShouldBe("video-id");
+        selected.Value.MediaKind.ShouldBe(VectorMediaKind.Motion);
+    }
+
+    [Fact]
+    public void SelectVectorMedia_PicksAnimation()
+    {
+        var selected = MessageHandler.SelectVectorMedia(
+            photos: null,
+            video: null,
+            animation: new Animation { FileId = "animation-id" },
+            document: null
+        );
+
+        selected.HasValue.ShouldBeTrue();
+        selected.Value.FileId.ShouldBe("animation-id");
+        selected.Value.MediaKind.ShouldBe(VectorMediaKind.Motion);
+    }
+
+    [Fact]
+    public void SelectVectorMedia_PicksVideoDocument()
+    {
+        var selected = MessageHandler.SelectVectorMedia(
+            photos: null,
+            video: null,
+            animation: null,
+            document: new Document { FileId = "doc-id", MimeType = "video/webm" }
+        );
+
+        selected.HasValue.ShouldBeTrue();
+        selected.Value.FileId.ShouldBe("doc-id");
+        selected.Value.MediaKind.ShouldBe(VectorMediaKind.Motion);
+    }
+
+    [Fact]
+    public void SelectVectorMedia_PicksGifDocument()
+    {
+        var selected = MessageHandler.SelectVectorMedia(
+            photos: null,
+            video: null,
+            animation: null,
+            document: new Document { FileId = "gif-id", MimeType = "image/gif" }
+        );
+
+        selected.HasValue.ShouldBeTrue();
+        selected.Value.FileId.ShouldBe("gif-id");
+        selected.Value.MediaKind.ShouldBe(VectorMediaKind.Motion);
+    }
+
+    [Fact]
+    public void SelectVectorMedia_IgnoresUnsupportedDocument()
+    {
+        var selected = MessageHandler.SelectVectorMedia(
+            photos: null,
+            video: null,
+            animation: null,
+            document: new Document { FileId = "doc-id", MimeType = "image/png" }
+        );
+
+        selected.HasValue.ShouldBeFalse();
+    }
+
     private VectorSearchService CreateVectorSearchService()
     {
         var services = new ServiceCollection();

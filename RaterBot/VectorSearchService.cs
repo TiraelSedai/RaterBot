@@ -34,6 +34,9 @@ internal sealed partial class VectorSearchService : IDisposable
     private const int ImageSize = 224;
     private const int EmbeddingDimension = 512;
     private const int OcrTimeoutMs = 10_000;
+    private const int MotionScanWindowSeconds = 15;
+    private const int MotionMaxKeyframes = 5;
+    private const int MotionFfmpegTimeoutMs = 30_000;
     private const string OcrLanguages = "eng+rus";
 
     private static readonly DateTime QuantCutoff = new(2026, 1, 29, 10, 0, 0, DateTimeKind.Utc);
@@ -51,10 +54,11 @@ internal sealed partial class VectorSearchService : IDisposable
     private readonly bool _isEnabled;
     private bool _missingTesseractLogged;
 
-    private record WorkItem(string PhotoFileId, Chat Chat, MessageId MessageId);
+    private record WorkItem(string FileId, VectorMediaKind MediaKind, Chat Chat, MessageId MessageId);
 
     private record ProcessedPost(
-        float[] Embedding,
+        VectorMediaKind MediaKind,
+        IReadOnlyList<float[]> Embeddings,
         bool IsTextHeavy,
         string? OcrTextNormalized,
         float? OcrAvgConfidence,
@@ -138,10 +142,10 @@ internal sealed partial class VectorSearchService : IDisposable
         _logger.LogDebug("VectorSearchService ctor end");
     }
 
-    public void Process(string photoFileId, Chat chat, MessageId messageId)
+    public void Process(string fileId, VectorMediaKind mediaKind, Chat chat, MessageId messageId)
     {
         if (_isEnabled)
-            _channel.Writer.TryWrite(new WorkItem(photoFileId, chat, messageId));
+            _channel.Writer.TryWrite(new WorkItem(fileId, mediaKind, chat, messageId));
     }
 
     private async Task WorkLoop()
@@ -160,7 +164,31 @@ internal sealed partial class VectorSearchService : IDisposable
         }
     }
 
-    private async Task CompareToExistingPosts(WorkItem item, ProcessedPost processed)
+    private async Task<ProcessedPost?> CalculateAndWriteFeatures(WorkItem item)
+    {
+        return item.MediaKind switch
+        {
+            VectorMediaKind.Image => await CalculateAndWriteImageFeatures(item),
+            VectorMediaKind.Motion => await CalculateAndWriteMotionFeatures(item),
+            _ => null,
+        };
+    }
+
+    private async Task CompareToExistingPosts(WorkItem item, ProcessedPost? processed)
+    {
+        if (processed == null)
+            return;
+
+        if (item.MediaKind == VectorMediaKind.Motion)
+        {
+            await CompareToExistingMotionPostsByClip(item, processed.Embeddings);
+            return;
+        }
+
+        await CompareToExistingImagePosts(item, processed);
+    }
+
+    private async Task CompareToExistingImagePosts(WorkItem item, ProcessedPost processed)
     {
         if (processed.ShouldUseOcr && !string.IsNullOrWhiteSpace(processed.OcrTextNormalized))
         {
@@ -175,7 +203,7 @@ internal sealed partial class VectorSearchService : IDisposable
         if (processed.IsTextHeavy)
             _logger.LogDebug("Using CLIP fallback for text-heavy image because OCR quality was insufficient");
 
-        await CompareToExistingPostsByClip(item, processed.Embedding);
+        await CompareToExistingImagePostsByClip(item, processed.Embeddings[0]);
     }
 
     private async Task<bool> CompareToExistingPostsByOcr(WorkItem item, string normalizedText)
@@ -216,18 +244,20 @@ internal sealed partial class VectorSearchService : IDisposable
         return false;
     }
 
-    private async Task CompareToExistingPostsByClip(WorkItem item, float[] embedding)
+    private async Task CompareToExistingImagePostsByClip(WorkItem item, float[] embedding)
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<SqliteDb>();
 
         var now = DateTime.UtcNow;
+        var imageKind = (int)VectorMediaKind.Image;
         var candidates = await db
             .Posts.Where(x =>
                 x.ChatId == item.Chat.Id
                 && x.MessageId != item.MessageId.Id
                 && x.ClipEmbedding != null
                 && x.Timestamp > now - _deduplicationWindow
+                && (x.VectorMediaKind == null || x.VectorMediaKind == imageKind)
             )
             .OrderByDescending(x => x.Timestamp)
             .Select(x => new
@@ -263,12 +293,67 @@ internal sealed partial class VectorSearchService : IDisposable
         }
     }
 
-    private async Task<ProcessedPost> CalculateAndWriteFeatures(WorkItem item)
+    private async Task CompareToExistingMotionPostsByClip(WorkItem item, IReadOnlyList<float[]> incomingEmbeddings)
+    {
+        if (incomingEmbeddings.Count < 2)
+        {
+            _logger.LogDebug("Skipping motion duplicate search due to low keyframe count ({Count})", incomingEmbeddings.Count);
+            return;
+        }
+
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<SqliteDb>();
+
+        var now = DateTime.UtcNow;
+        var motionKind = (int)VectorMediaKind.Motion;
+        var candidates = await db
+            .Posts.Where(x =>
+                x.ChatId == item.Chat.Id
+                && x.MessageId != item.MessageId.Id
+                && x.ClipEmbedding != null
+                && x.Timestamp > now - _deduplicationWindow
+                && x.VectorMediaKind == motionKind
+            )
+            .OrderByDescending(x => x.Timestamp)
+            .Select(x => new
+            {
+                x.MessageId,
+                x.Timestamp,
+                x.ClipEmbedding,
+                x.ClipEmbedding2,
+                x.ClipEmbedding3,
+                x.ClipEmbedding4,
+                x.ClipEmbedding5,
+            })
+            .ToListAsync();
+        _logger.LogDebug("Found {Count} motion CLIP duplicate candidates", candidates.Count);
+
+        foreach (var candidate in candidates)
+        {
+            var candidateEmbeddings = DecodeEmbeddings(
+                candidate.Timestamp,
+                candidate.ClipEmbedding,
+                candidate.ClipEmbedding2,
+                candidate.ClipEmbedding3,
+                candidate.ClipEmbedding4,
+                candidate.ClipEmbedding5
+            );
+            if (!HasTwoDistinctFrameMatches(incomingEmbeddings, candidateEmbeddings, SimilarityThreshold))
+                continue;
+
+            _logger.LogInformation("Found possible duplicate via motion CLIP");
+            var linkToMessage = TelegramHelper.LinkToMessage(item.Chat, candidate.MessageId);
+            _bot.TemporaryReply(item.Chat.Id, item.MessageId, $"Уже было? {linkToMessage}");
+            break;
+        }
+    }
+
+    private async Task<ProcessedPost> CalculateAndWriteImageFeatures(WorkItem item)
     {
         byte[] imageBytes;
         using (var ms = new MemoryStream())
         {
-            await _bot.GetInfoAndDownloadFile(item.PhotoFileId, ms);
+            await _bot.GetInfoAndDownloadFile(item.FileId, ms);
             imageBytes = ms.ToArray();
         }
 
@@ -291,6 +376,11 @@ internal sealed partial class VectorSearchService : IDisposable
         await db
             .Posts.Where(x => x.ChatId == item.Chat.Id && x.MessageId == item.MessageId.Id)
             .Set(x => x.ClipEmbedding, embeddingBytes)
+            .Set(x => x.ClipEmbedding2, (byte[]?)null)
+            .Set(x => x.ClipEmbedding3, (byte[]?)null)
+            .Set(x => x.ClipEmbedding4, (byte[]?)null)
+            .Set(x => x.ClipEmbedding5, (byte[]?)null)
+            .Set(x => x.VectorMediaKind, (int)VectorMediaKind.Image)
             .Set(x => x.TextCoverageRatio, coverageDb)
             .Set(x => x.IsTextHeavy, isTextHeavy)
             .Set(x => x.OcrTextNormalized, ocrTextNormalized)
@@ -307,13 +397,79 @@ internal sealed partial class VectorSearchService : IDisposable
         );
 
         return new ProcessedPost(
-            embedding,
+            VectorMediaKind.Image,
+            [embedding],
             isTextHeavy,
             ocrTextNormalized,
             ocrConfidence,
             textCoverageRatio,
             shouldUseOcr
         );
+    }
+
+    private async Task<ProcessedPost?> CalculateAndWriteMotionFeatures(WorkItem item)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"raterbot-motion-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var mediaPath = Path.Combine(tempDir, "input_media.bin");
+            await using (var stream = File.Create(mediaPath))
+                await _bot.GetInfoAndDownloadFile(item.FileId, stream);
+
+            var keyframePaths = ExtractKeyframePaths(mediaPath, tempDir);
+            var embeddings = new List<float[]>(Math.Min(MotionMaxKeyframes, keyframePaths.Count));
+            foreach (var keyframePath in keyframePaths)
+            {
+                using var image = Image.Load<Rgb24>(keyframePath);
+                embeddings.Add(GetEmbedding(image));
+            }
+
+            var quantized = embeddings.Select(FloatsToInt8Bytes).ToList();
+            var first = quantized.Count > 0 ? quantized[0] : null;
+            var second = quantized.Count > 1 ? quantized[1] : null;
+            var third = quantized.Count > 2 ? quantized[2] : null;
+            var fourth = quantized.Count > 3 ? quantized[3] : null;
+            var fifth = quantized.Count > 4 ? quantized[4] : null;
+
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<SqliteDb>();
+            await db
+                .Posts.Where(x => x.ChatId == item.Chat.Id && x.MessageId == item.MessageId.Id)
+                .Set(x => x.ClipEmbedding, first)
+                .Set(x => x.ClipEmbedding2, second)
+                .Set(x => x.ClipEmbedding3, third)
+                .Set(x => x.ClipEmbedding4, fourth)
+                .Set(x => x.ClipEmbedding5, fifth)
+                .Set(x => x.VectorMediaKind, (int)VectorMediaKind.Motion)
+                .Set(x => x.TextCoverageRatio, (double?)null)
+                .Set(x => x.IsTextHeavy, (bool?)null)
+                .Set(x => x.OcrTextNormalized, (string?)null)
+                .Set(x => x.OcrAvgConfidence, (double?)null)
+                .UpdateAsync();
+
+            _logger.LogInformation("Motion media analyzed. Keyframes={Count}", embeddings.Count);
+
+            return new ProcessedPost(
+                VectorMediaKind.Motion,
+                embeddings,
+                IsTextHeavy: false,
+                OcrTextNormalized: null,
+                OcrAvgConfidence: null,
+                TextCoverageRatio: 0f,
+                ShouldUseOcr: false
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Motion media analysis failed");
+            return null;
+        }
+        finally
+        {
+            DeleteDirectoryWithRetries(tempDir);
+        }
     }
 
     private float[] GetEmbedding(Image<Rgb24> image)
@@ -333,13 +489,13 @@ internal sealed partial class VectorSearchService : IDisposable
         var inputTensor = new DenseTensor<float>([1, 3, ImageSize, ImageSize]);
 
         for (var y = 0; y < ImageSize; y++)
-        for (var x = 0; x < ImageSize; x++)
-        {
-            var pixel = image[x, y];
-            inputTensor[0, 0, y, x] = ((pixel.R / 255f) - Mean[0]) / Std[0];
-            inputTensor[0, 1, y, x] = ((pixel.G / 255f) - Mean[1]) / Std[1];
-            inputTensor[0, 2, y, x] = ((pixel.B / 255f) - Mean[2]) / Std[2];
-        }
+            for (var x = 0; x < ImageSize; x++)
+            {
+                var pixel = image[x, y];
+                inputTensor[0, 0, y, x] = ((pixel.R / 255f) - Mean[0]) / Std[0];
+                inputTensor[0, 1, y, x] = ((pixel.G / 255f) - Mean[1]) / Std[1];
+                inputTensor[0, 2, y, x] = ((pixel.B / 255f) - Mean[2]) / Std[2];
+            }
 
         var inputs = new List<NamedOnnxValue> { NamedOnnxValue.CreateFromTensor("pixel_values", inputTensor) };
 
@@ -354,6 +510,155 @@ internal sealed partial class VectorSearchService : IDisposable
         TensorPrimitives.Divide(embedding, norm, embedding);
 
         return embedding;
+    }
+
+    private List<string> ExtractKeyframePaths(string mediaPath, string workDir)
+    {
+        var keyframesDir = Path.Combine(workDir, "keyframes");
+        Directory.CreateDirectory(keyframesDir);
+
+        var outputPattern = Path.Combine(keyframesDir, "keyframe-%03d.png");
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = "ffmpeg",
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            },
+        };
+        process.StartInfo.ArgumentList.Add("-hide_banner");
+        process.StartInfo.ArgumentList.Add("-loglevel");
+        process.StartInfo.ArgumentList.Add("error");
+        process.StartInfo.ArgumentList.Add("-y");
+        process.StartInfo.ArgumentList.Add("-i");
+        process.StartInfo.ArgumentList.Add(mediaPath);
+        process.StartInfo.ArgumentList.Add("-t");
+        process.StartInfo.ArgumentList.Add(MotionScanWindowSeconds.ToString(CultureInfo.InvariantCulture));
+        process.StartInfo.ArgumentList.Add("-vf");
+        process.StartInfo.ArgumentList.Add("select=eq(pict_type\\,I)");
+        process.StartInfo.ArgumentList.Add("-vsync");
+        process.StartInfo.ArgumentList.Add("vfr");
+        process.StartInfo.ArgumentList.Add("-frames:v");
+        process.StartInfo.ArgumentList.Add(MotionMaxKeyframes.ToString(CultureInfo.InvariantCulture));
+        process.StartInfo.ArgumentList.Add(outputPattern);
+
+        process.Start();
+        var stdErrTask = process.StandardError.ReadToEndAsync();
+
+        if (!process.WaitForExit(MotionFfmpegTimeoutMs))
+        {
+            try
+            {
+                process.Kill(true);
+            }
+            catch
+            {
+            }
+            _logger.LogWarning("ffmpeg keyframe extraction timed out after {TimeoutMs}ms", MotionFfmpegTimeoutMs);
+            return [];
+        }
+
+        Task.WaitAll(stdErrTask);
+        if (process.ExitCode != 0)
+        {
+            _logger.LogWarning(
+                "ffmpeg keyframe extraction failed with code {ExitCode}. stderr: {Err}",
+                process.ExitCode,
+                stdErrTask.Result
+            );
+            return [];
+        }
+
+        return Directory.GetFiles(keyframesDir, "keyframe-*.png")
+            .OrderBy(Path.GetFileName, StringComparer.Ordinal)
+            .Take(MotionMaxKeyframes)
+            .ToList();
+    }
+
+    private void DeleteDirectoryWithRetries(string directoryPath)
+    {
+        if (!Directory.Exists(directoryPath))
+            return;
+
+        for (var attempt = 1; attempt <= 4; attempt++)
+        {
+            try
+            {
+                Directory.Delete(directoryPath, recursive: true);
+                return;
+            }
+            catch (Exception ex) when (attempt < 4)
+            {
+                _logger.LogDebug(ex, "Unable to delete temp directory on attempt {Attempt}, retrying", attempt);
+                Thread.Sleep(250);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unable to delete temp directory {DirectoryPath}", directoryPath);
+            }
+        }
+    }
+
+    private List<float[]> DecodeEmbeddings(DateTime timestamp, params byte[]?[] embeddingsBytes)
+    {
+        var embeddings = new List<float[]>(embeddingsBytes.Length);
+        foreach (var embeddingBytes in embeddingsBytes)
+        {
+            if (embeddingBytes == null)
+                continue;
+
+            var embedding = BytesToFloats(embeddingBytes, timestamp);
+            if (embedding.Length != EmbeddingDimension)
+            {
+                _logger.LogDebug("Skipping candidate with unexpected embedding length {Length}", embedding.Length);
+                continue;
+            }
+
+            embeddings.Add(embedding);
+        }
+
+        return embeddings;
+    }
+
+    internal static bool HasTwoDistinctFrameMatches(
+        IReadOnlyList<float[]> incomingEmbeddings,
+        IReadOnlyList<float[]> candidateEmbeddings,
+        float threshold
+    )
+    {
+        if (incomingEmbeddings.Count < 2 || candidateEmbeddings.Count < 2)
+            return false;
+
+        var matchedIncoming = new HashSet<int>();
+        var matchedCandidate = new HashSet<int>();
+
+        for (var i = 0; i < incomingEmbeddings.Count; i++)
+        {
+            var incoming = incomingEmbeddings[i];
+            var hasMatch = false;
+            for (var j = 0; j < candidateEmbeddings.Count; j++)
+            {
+                var candidate = candidateEmbeddings[j];
+                if (incoming.Length != candidate.Length)
+                    continue;
+
+                var similarity = TensorPrimitives.CosineSimilarity(incoming, candidate);
+                if (similarity < threshold)
+                    continue;
+
+                matchedIncoming.Add(i);
+                matchedCandidate.Add(j);
+                hasMatch = true;
+                break;
+            }
+
+            if (hasMatch && matchedIncoming.Count >= 2 && matchedCandidate.Count >= 2)
+                return true;
+        }
+
+        return false;
     }
 
     private float DetectTextCoverageRatio(byte[] imageBytes)
@@ -457,42 +762,42 @@ internal sealed partial class VectorSearchService : IDisposable
         var result = new List<EastCandidate>(Math.Min(512, cellCount));
 
         for (var y = 0; y < featureMapHeight; y++)
-        for (var x = 0; x < featureMapWidth; x++)
-        {
-            var offset = y * featureMapWidth + x;
-            var confidence = scores[offset];
-            if (confidence < scoreThreshold)
-                continue;
+            for (var x = 0; x < featureMapWidth; x++)
+            {
+                var offset = y * featureMapWidth + x;
+                var confidence = scores[offset];
+                if (confidence < scoreThreshold)
+                    continue;
 
-            var top = geometry[offset];
-            var right = geometry[cellCount + offset];
-            var bottom = geometry[cellCount * 2 + offset];
-            var left = geometry[cellCount * 3 + offset];
-            var angle = geometry[cellCount * 4 + offset];
+                var top = geometry[offset];
+                var right = geometry[cellCount + offset];
+                var bottom = geometry[cellCount * 2 + offset];
+                var left = geometry[cellCount * 3 + offset];
+                var angle = geometry[cellCount * 4 + offset];
 
-            var cos = MathF.Cos(angle);
-            var sin = MathF.Sin(angle);
-            var boxHeight = top + bottom;
-            var boxWidth = right + left;
-            if (boxWidth <= 0f || boxHeight <= 0f)
-                continue;
+                var cos = MathF.Cos(angle);
+                var sin = MathF.Sin(angle);
+                var boxHeight = top + bottom;
+                var boxWidth = right + left;
+                if (boxWidth <= 0f || boxHeight <= 0f)
+                    continue;
 
-            var offsetX = x * EastStride;
-            var offsetY = y * EastStride;
-            var endX = offsetX + cos * right + sin * bottom;
-            var endY = offsetY - sin * right + cos * bottom;
-            var startX = endX - boxWidth;
-            var startY = endY - boxHeight;
+                var offsetX = x * EastStride;
+                var offsetY = y * EastStride;
+                var endX = offsetX + cos * right + sin * bottom;
+                var endY = offsetY - sin * right + cos * bottom;
+                var startX = endX - boxWidth;
+                var startY = endY - boxHeight;
 
-            var x1 = Math.Clamp(MathF.Min(startX, endX) * scaleX, 0f, imageWidth);
-            var y1 = Math.Clamp(MathF.Min(startY, endY) * scaleY, 0f, imageHeight);
-            var x2 = Math.Clamp(MathF.Max(startX, endX) * scaleX, 0f, imageWidth);
-            var y2 = Math.Clamp(MathF.Max(startY, endY) * scaleY, 0f, imageHeight);
-            if (x2 <= x1 || y2 <= y1)
-                continue;
+                var x1 = Math.Clamp(MathF.Min(startX, endX) * scaleX, 0f, imageWidth);
+                var y1 = Math.Clamp(MathF.Min(startY, endY) * scaleY, 0f, imageHeight);
+                var x2 = Math.Clamp(MathF.Max(startX, endX) * scaleX, 0f, imageWidth);
+                var y2 = Math.Clamp(MathF.Max(startY, endY) * scaleY, 0f, imageHeight);
+                if (x2 <= x1 || y2 <= y1)
+                    continue;
 
-            result.Add(new EastCandidate(new Rect2f(x1, y1, x2 - x1, y2 - y1), confidence));
-        }
+                result.Add(new EastCandidate(new Rect2f(x1, y1, x2 - x1, y2 - y1), confidence));
+            }
 
         return result;
     }

@@ -944,11 +944,9 @@ internal sealed class MessageHandler
             );
             InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.Id);
             await _botClient.DeleteMessage(msg.Chat.Id, msg.MessageId);
-            var photoFileId = SelectHighestResolutionPhotoFileId(msg.Photo);
-            if (photoFileId != null)
-            {
-                _vectorSearchService.Process(photoFileId, msg.Chat, newMessage);
-            }
+            var media = SelectVectorMedia(msg.Photo, msg.Video, msg.Animation, msg.Document);
+            if (media.HasValue)
+                _vectorSearchService.Process(media.Value.FileId, media.Value.MediaKind, msg.Chat, newMessage);
         }
         catch (Exception ex)
         {
@@ -996,6 +994,38 @@ internal sealed class MessageHandler
             return null;
 
         return photos.MaxBy(p => (long)p.Width * p.Height)?.FileId;
+    }
+
+    internal static (string FileId, VectorMediaKind MediaKind)? SelectVectorMedia(
+        IReadOnlyCollection<PhotoSize>? photos,
+        Video? video,
+        Animation? animation,
+        Document? document
+    )
+    {
+        var photoFileId = SelectHighestResolutionPhotoFileId(photos);
+        if (!string.IsNullOrWhiteSpace(photoFileId))
+            return (photoFileId, VectorMediaKind.Image);
+
+        if (!string.IsNullOrWhiteSpace(video?.FileId))
+            return (video.FileId, VectorMediaKind.Motion);
+
+        if (!string.IsNullOrWhiteSpace(animation?.FileId))
+            return (animation.FileId, VectorMediaKind.Motion);
+
+        if (!string.IsNullOrWhiteSpace(document?.FileId) && IsMotionDocumentMimeType(document.MimeType))
+            return (document.FileId, VectorMediaKind.Motion);
+
+        return null;
+    }
+
+    internal static bool IsMotionDocumentMimeType(string? mimeType)
+    {
+        if (string.IsNullOrWhiteSpace(mimeType))
+            return false;
+
+        return mimeType.StartsWith("video/", StringComparison.OrdinalIgnoreCase)
+            || mimeType.Equals("image/gif", StringComparison.OrdinalIgnoreCase);
     }
 
     private static TimeSpan PeriodToTimeSpan(Period period)
