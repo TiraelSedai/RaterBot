@@ -3,6 +3,8 @@ services:
     build: .
     image: raterbot
     container_name: raterbot
+    environment:
+      TELEGRAM_MEDIA_RATER_BOT_API: ${TELEGRAM_MEDIA_RATER_BOT_API}
     volumes:
       - testmeme:/app/db
 

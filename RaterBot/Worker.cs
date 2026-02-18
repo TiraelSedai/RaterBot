@@ -12,16 +12,28 @@ namespace RaterBot
         private readonly IServiceProvider _serviceProvider;
         private readonly ITelegramBotClient _botClient;
         private readonly ILogger<MessageHandler> _logger;
+        private readonly VectorSearchService _vectorSearchService;
 
-        public Worker(IServiceProvider serviceProvider, ITelegramBotClient botClient, ILogger<MessageHandler> logger)
+        public Worker(
+            IServiceProvider serviceProvider,
+            ITelegramBotClient botClient,
+            ILogger<MessageHandler> logger,
+            VectorSearchService vectorSearchService
+        )
         {
             _serviceProvider = serviceProvider;
             _botClient = botClient;
             _logger = logger;
+            _vectorSearchService = vectorSearchService;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            _logger.LogInformation(
+                "VectorSearchService eager init complete: {ServiceType}",
+                _vectorSearchService.GetType().Name
+            );
+
             var me = await _botClient.GetMe(cancellationToken: stoppingToken);
             await _botClient.SetMyCommands(
                 [

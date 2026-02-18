@@ -5,10 +5,18 @@ COPY ["RaterBot.Database/RaterBot.Database.csproj", "RaterBot.Database/"]
 RUN dotnet restore "RaterBot/RaterBot.csproj" -r linux-x64
 COPY . .
 WORKDIR "/src/RaterBot"
-RUN dotnet publish "RaterBot.csproj" -c Release -r linux-x64 -o /publish --self-contained false
+RUN dotnet publish "RaterBot.csproj" -c Release -r linux-x64 -o /publish --self-contained false && \
+    cp "$(find /root/.nuget/packages/opencvsharp4.runtime.linux-x64 -name libOpenCvSharpExtern.so -print -quit)" /publish/libOpenCvSharpExtern.so
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
-RUN apt update && apt install -y apt-transport-https curl ffmpeg libgomp1 tesseract-ocr tesseract-ocr-eng tesseract-ocr-rus && apt clean && apt autoremove
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends curl ffmpeg libgomp1 tesseract-ocr tesseract-ocr-eng tesseract-ocr-rus; \
+    echo "deb http://archive.ubuntu.com/ubuntu jammy main universe" > /etc/apt/sources.list.d/jammy.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends libtesseract4 libavcodec58 libavformat58 libavutil56 libswscale5 libtiff5 libgtk2.0-0 libopenexr25; \
+    rm -f /etc/apt/sources.list.d/jammy.list; \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY --from=build /publish .
