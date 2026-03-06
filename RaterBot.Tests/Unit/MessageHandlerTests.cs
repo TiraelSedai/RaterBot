@@ -1,4 +1,3 @@
-using Shouldly;
 using LinqToDB;
 using LinqToDB.Async;
 using LinqToDB.Extensions.DependencyInjection;
@@ -7,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Moq;
 using RaterBot.Database;
 using RaterBot.Tests.Database;
+using Shouldly;
 using Telegram.Bot;
 using Telegram.Bot.Requests;
 using Telegram.Bot.Types;
@@ -25,9 +25,24 @@ public class MessageHandlerTests : SqliteDbTestBase
     {
         var photos = new[]
         {
-            new PhotoSize { FileId = "small", Width = 320, Height = 180 },
-            new PhotoSize { FileId = "medium", Width = 640, Height = 360 },
-            new PhotoSize { FileId = "large", Width = 1280, Height = 720 },
+            new PhotoSize
+            {
+                FileId = "small",
+                Width = 320,
+                Height = 180,
+            },
+            new PhotoSize
+            {
+                FileId = "medium",
+                Width = 640,
+                Height = 360,
+            },
+            new PhotoSize
+            {
+                FileId = "large",
+                Width = 1280,
+                Height = 720,
+            },
         };
 
         var selected = MessageHandler.SelectHighestResolutionPhotoFileId(photos);
@@ -39,8 +54,18 @@ public class MessageHandlerTests : SqliteDbTestBase
     {
         var photos = new[]
         {
-            new PhotoSize { FileId = "small", Width = 320, Height = 180 },
-            new PhotoSize { FileId = "large", Width = 1920, Height = 1080 },
+            new PhotoSize
+            {
+                FileId = "small",
+                Width = 320,
+                Height = 180,
+            },
+            new PhotoSize
+            {
+                FileId = "large",
+                Width = 1920,
+                Height = 1080,
+            },
         };
 
         var selected = MessageHandler.SelectVectorMedia(
@@ -201,9 +226,14 @@ public class MessageHandlerTests : SqliteDbTestBase
         var interactions = await Db.Interactions.ToListAsync();
         interactions.ShouldBeEmpty();
 
-        _mockBot.Verify(x => x.SendRequest(
-            It.Is<AnswerCallbackQueryRequest>(r => r.Text != null && r.Text.Contains("свои посты")),
-            It.IsAny<CancellationToken>()), Times.Once);
+        _mockBot.Verify(
+            x =>
+                x.SendRequest(
+                    It.Is<AnswerCallbackQueryRequest>(r => r.Text != null && r.Text.Contains("свои посты")),
+                    It.IsAny<CancellationToken>()
+                ),
+            Times.Once
+        );
     }
 
     [Fact]
@@ -226,9 +256,14 @@ public class MessageHandlerTests : SqliteDbTestBase
         var interactions = await Db.Interactions.ToListAsync();
         interactions.Count.ShouldBe(1);
 
-        _mockBot.Verify(x => x.SendRequest(
-            It.Is<AnswerCallbackQueryRequest>(r => r.Text != null && r.Text.Contains("уже поставил")),
-            It.IsAny<CancellationToken>()), Times.Once);
+        _mockBot.Verify(
+            x =>
+                x.SendRequest(
+                    It.Is<AnswerCallbackQueryRequest>(r => r.Text != null && r.Text.Contains("уже поставил")),
+                    It.IsAny<CancellationToken>()
+                ),
+            Times.Once
+        );
     }
 
     [Fact]
@@ -266,9 +301,14 @@ public class MessageHandlerTests : SqliteDbTestBase
 
         await handler.HandleUpdate(botUser, update);
 
-        _mockBot.Verify(x => x.SendRequest(
-            It.Is<AnswerCallbackQueryRequest>(r => r.Text != null && r.Text.Contains("не найден")),
-            It.IsAny<CancellationToken>()), Times.Once);
+        _mockBot.Verify(
+            x =>
+                x.SendRequest(
+                    It.Is<AnswerCallbackQueryRequest>(r => r.Text != null && r.Text.Contains("не найден")),
+                    It.IsAny<CancellationToken>()
+                ),
+            Times.Once
+        );
     }
 
     [Fact]
@@ -292,9 +332,14 @@ public class MessageHandlerTests : SqliteDbTestBase
             await handler.HandleUpdate(botUser, update);
 
             _mockBot.Verify(x => x.SendRequest(It.IsAny<SendVideoRequest>(), It.IsAny<CancellationToken>()), Times.Once);
-            _mockBot.Verify(x => x.SendRequest(
-                It.Is<SendMessageRequest>(r => r.Text != null && r.Text.Contains("fixupx.com")),
-                It.IsAny<CancellationToken>()), Times.Never);
+            _mockBot.Verify(
+                x =>
+                    x.SendRequest(
+                        It.Is<SendMessageRequest>(r => r.Text != null && r.Text.Contains("fixupx.com")),
+                        It.IsAny<CancellationToken>()
+                    ),
+                Times.Never
+            );
             _mockDownloader.Verify(x => x.DownloadYtDlp("https://x.com/test/status/123", UrlType.Twitter), Times.Once);
 
             var posts = await Db.Posts.ToListAsync();
@@ -326,9 +371,14 @@ public class MessageHandlerTests : SqliteDbTestBase
         await handler.HandleUpdate(botUser, update);
 
         _mockBot.Verify(x => x.SendRequest(It.IsAny<SendVideoRequest>(), It.IsAny<CancellationToken>()), Times.Never);
-        _mockBot.Verify(x => x.SendRequest(
-            It.Is<SendMessageRequest>(r => r.Text != null && r.Text.Contains(fallbackUrl)),
-            It.IsAny<CancellationToken>()), Times.Once);
+        _mockBot.Verify(
+            x =>
+                x.SendRequest(
+                    It.Is<SendMessageRequest>(r => r.Text != null && r.Text.Contains(fallbackUrl)),
+                    It.IsAny<CancellationToken>()
+                ),
+            Times.Once
+        );
         _mockDownloader.Verify(x => x.DownloadYtDlp(twitterUrl, UrlType.Twitter), Times.Once);
 
         var posts = await Db.Posts.ToListAsync();
@@ -366,16 +416,29 @@ public class MessageHandlerTests : SqliteDbTestBase
     {
         var chat = new Chat { Id = chatId, Type = ChatType.Supergroup };
         var message = CreateMessage(chat, (int)messageId);
-        var from = new User { Id = userId, FirstName = "Test", Username = "testuser" };
-        var callbackQuery = new CallbackQuery { Id = "test-callback-id", From = from, Message = message, Data = callbackData };
+        var from = new User
+        {
+            Id = userId,
+            FirstName = "Test",
+            Username = "testuser",
+        };
+        var callbackQuery = new CallbackQuery
+        {
+            Id = "test-callback-id",
+            From = from,
+            Message = message,
+            Data = callbackData,
+        };
         return new Update { CallbackQuery = callbackQuery };
     }
 
     private void SetupBotResponses(int sendMessageMessageId, int sendVideoMessageId)
     {
-        _mockBot.Setup(x => x.SendRequest(It.IsAny<SendMessageRequest>(), It.IsAny<CancellationToken>()))
+        _mockBot
+            .Setup(x => x.SendRequest(It.IsAny<SendMessageRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateMessage(new Chat { Id = 1, Type = ChatType.Supergroup }, sendMessageMessageId));
-        _mockBot.Setup(x => x.SendRequest(It.IsAny<SendVideoRequest>(), It.IsAny<CancellationToken>()))
+        _mockBot
+            .Setup(x => x.SendRequest(It.IsAny<SendVideoRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(CreateMessage(new Chat { Id = 1, Type = ChatType.Supergroup }, sendVideoMessageId));
         _mockBot.Setup(x => x.SendRequest(It.IsAny<DeleteMessageRequest>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
     }
@@ -388,8 +451,29 @@ public class MessageHandlerTests : SqliteDbTestBase
         var chat = new Chat { Id = chatId, Type = ChatType.Supergroup };
         var message = CreateMessage(chat, messageId);
         SetMessageProperty(message, nameof(Message.Text), text);
-        SetMessageProperty(message, nameof(Message.Entities), new[] { new MessageEntity { Type = MessageEntityType.Url, Offset = 0, Length = text.Length } });
-        SetMessageProperty(message, nameof(Message.From), new User { Id = userId, FirstName = "Test", Username = "testuser" });
+        SetMessageProperty(
+            message,
+            nameof(Message.Entities),
+            new[]
+            {
+                new MessageEntity
+                {
+                    Type = MessageEntityType.Url,
+                    Offset = 0,
+                    Length = text.Length,
+                },
+            }
+        );
+        SetMessageProperty(
+            message,
+            nameof(Message.From),
+            new User
+            {
+                Id = userId,
+                FirstName = "Test",
+                Username = "testuser",
+            }
+        );
         return message;
     }
 

@@ -5,6 +5,7 @@ services:
     container_name: raterbot
     environment:
       TELEGRAM_MEDIA_RATER_BOT_API: ${TELEGRAM_MEDIA_RATER_BOT_API}
+      TELEGRAM_MEDIA_RATER_PROXY: ${TELEGRAM_MEDIA_RATER_PROXY}
     volumes:
       - testmeme:/app/db
 

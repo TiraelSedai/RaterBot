@@ -21,8 +21,11 @@ public abstract class SqliteDbTestBase : IAsyncLifetime
     {
         _services = new ServiceCollection();
         _services.AddLinqToDBContext<SqliteDb>((_, options) => options.UseSQLite(_connectionString));
-        _services.AddFluentMigratorCore()
-            .ConfigureRunner(rb => rb.AddSQLite().WithGlobalConnectionString(_connectionString).ScanIn(typeof(Init).Assembly).For.Migrations());
+        _services
+            .AddFluentMigratorCore()
+            .ConfigureRunner(rb =>
+                rb.AddSQLite().WithGlobalConnectionString(_connectionString).ScanIn(typeof(Init).Assembly).For.Migrations()
+            );
 
         _serviceProvider = _services.BuildServiceProvider();
 
@@ -49,7 +52,7 @@ public abstract class SqliteDbTestBase : IAsyncLifetime
             ChatId = chatId,
             PosterId = posterId,
             MessageId = messageId,
-            Timestamp = timestamp ?? DateTime.UtcNow
+            Timestamp = timestamp ?? DateTime.UtcNow,
         };
         return await Db.InsertWithInt64IdentityAsync(post);
     }
@@ -60,7 +63,7 @@ public abstract class SqliteDbTestBase : IAsyncLifetime
         {
             UserId = userId,
             PostId = postId,
-            Reaction = reaction
+            Reaction = reaction,
         };
         return await Db.InsertWithInt64IdentityAsync(interaction);
     }

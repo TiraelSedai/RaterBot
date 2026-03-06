@@ -29,10 +29,7 @@ namespace RaterBot
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _logger.LogInformation(
-                "VectorSearchService eager init complete: {ServiceType}",
-                _vectorSearchService.GetType().Name
-            );
+            _logger.LogInformation("VectorSearchService eager init complete: {ServiceType}", _vectorSearchService.GetType().Name);
 
             var me = await _botClient.GetMe(cancellationToken: stoppingToken);
             await _botClient.SetMyCommands(

@@ -5,7 +5,11 @@ namespace RaterBot.Tests.Unit;
 
 public class WorkerTests
 {
-    private static readonly Regex IgnorePattern = new("(\\/|#)(ignore|skip)", RegexOptions.Compiled | RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
+    private static readonly Regex IgnorePattern = new(
+        "(\\/|#)(ignore|skip)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase,
+        TimeSpan.FromSeconds(1)
+    );
 
     [Theory]
     [InlineData("/ignore", true)]

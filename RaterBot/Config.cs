@@ -7,6 +7,9 @@ public class Config
 {
     public Config(ILogger<Config> logger, ITelegramBotClient botClient)
     {
+        var downloaderProxy = Environment.GetEnvironmentVariable("TELEGRAM_MEDIA_RATER_PROXY");
+        DownloaderProxy = string.IsNullOrWhiteSpace(downloaderProxy) ? null : downloaderProxy;
+
         var forwards = Environment.GetEnvironmentVariable("TELEGRAM_MEDIA_RATER_FORWARD");
         var map = new Dictionary<long, long>();
         if (forwards != null)
@@ -47,5 +50,6 @@ public class Config
         ForwardTop = map.ToFrozenDictionary();
     }
 
+    public readonly string? DownloaderProxy;
     public readonly FrozenDictionary<long, long> ForwardTop;
 }

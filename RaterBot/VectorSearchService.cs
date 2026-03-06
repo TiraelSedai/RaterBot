@@ -70,8 +70,7 @@ internal sealed partial class VectorSearchService : IDisposable
     {
         public static OcrResult Empty => new("", 0f, false);
 
-        public float QualityScore =>
-            (Success ? Math.Max(AvgConfidence, 0f) : 0f) + Math.Min(RawText.Length, 200) / 4f;
+        public float QualityScore => (Success ? Math.Max(AvgConfidence, 0f) : 0f) + Math.Min(RawText.Length, 200) / 4f;
     }
 
     internal readonly record struct EastCandidate(Rect2f Box, float Confidence);
@@ -221,11 +220,7 @@ internal sealed partial class VectorSearchService : IDisposable
                 && x.Timestamp > now - _deduplicationWindow
             )
             .OrderByDescending(x => x.Timestamp)
-            .Select(x => new
-            {
-                x.MessageId,
-                x.OcrTextNormalized,
-            })
+            .Select(x => new { x.MessageId, x.OcrTextNormalized })
             .ToListAsync();
 
         _logger.LogDebug("Found {Count} OCR duplicate candidates", candidates.Count);
@@ -393,7 +388,9 @@ internal sealed partial class VectorSearchService : IDisposable
             isTextHeavy,
             ocrTextNormalized?.Length ?? 0,
             ocrConfidence ?? 0f,
-            shouldUseOcr ? "OCR" : isTextHeavy ? "CLIP_FALLBACK" : "CLIP"
+            shouldUseOcr ? "OCR"
+                : isTextHeavy ? "CLIP_FALLBACK"
+                : "CLIP"
         );
 
         return new ProcessedPost(
@@ -489,13 +486,13 @@ internal sealed partial class VectorSearchService : IDisposable
         var inputTensor = new DenseTensor<float>([1, 3, ImageSize, ImageSize]);
 
         for (var y = 0; y < ImageSize; y++)
-            for (var x = 0; x < ImageSize; x++)
-            {
-                var pixel = image[x, y];
-                inputTensor[0, 0, y, x] = ((pixel.R / 255f) - Mean[0]) / Std[0];
-                inputTensor[0, 1, y, x] = ((pixel.G / 255f) - Mean[1]) / Std[1];
-                inputTensor[0, 2, y, x] = ((pixel.B / 255f) - Mean[2]) / Std[2];
-            }
+        for (var x = 0; x < ImageSize; x++)
+        {
+            var pixel = image[x, y];
+            inputTensor[0, 0, y, x] = ((pixel.R / 255f) - Mean[0]) / Std[0];
+            inputTensor[0, 1, y, x] = ((pixel.G / 255f) - Mean[1]) / Std[1];
+            inputTensor[0, 2, y, x] = ((pixel.B / 255f) - Mean[2]) / Std[2];
+        }
 
         var inputs = new List<NamedOnnxValue> { NamedOnnxValue.CreateFromTensor("pixel_values", inputTensor) };
 
@@ -553,9 +550,7 @@ internal sealed partial class VectorSearchService : IDisposable
             {
                 process.Kill(true);
             }
-            catch
-            {
-            }
+            catch { }
             _logger.LogWarning("ffmpeg keyframe extraction timed out after {TimeoutMs}ms", MotionFfmpegTimeoutMs);
             return [];
         }
@@ -571,7 +566,8 @@ internal sealed partial class VectorSearchService : IDisposable
             return [];
         }
 
-        return Directory.GetFiles(keyframesDir, "keyframe-*.png")
+        return Directory
+            .GetFiles(keyframesDir, "keyframe-*.png")
             .OrderBy(Path.GetFileName, StringComparer.Ordinal)
             .Take(MotionMaxKeyframes)
             .ToList();
@@ -762,42 +758,42 @@ internal sealed partial class VectorSearchService : IDisposable
         var result = new List<EastCandidate>(Math.Min(512, cellCount));
 
         for (var y = 0; y < featureMapHeight; y++)
-            for (var x = 0; x < featureMapWidth; x++)
-            {
-                var offset = y * featureMapWidth + x;
-                var confidence = scores[offset];
-                if (confidence < scoreThreshold)
-                    continue;
+        for (var x = 0; x < featureMapWidth; x++)
+        {
+            var offset = y * featureMapWidth + x;
+            var confidence = scores[offset];
+            if (confidence < scoreThreshold)
+                continue;
 
-                var top = geometry[offset];
-                var right = geometry[cellCount + offset];
-                var bottom = geometry[cellCount * 2 + offset];
-                var left = geometry[cellCount * 3 + offset];
-                var angle = geometry[cellCount * 4 + offset];
+            var top = geometry[offset];
+            var right = geometry[cellCount + offset];
+            var bottom = geometry[cellCount * 2 + offset];
+            var left = geometry[cellCount * 3 + offset];
+            var angle = geometry[cellCount * 4 + offset];
 
-                var cos = MathF.Cos(angle);
-                var sin = MathF.Sin(angle);
-                var boxHeight = top + bottom;
-                var boxWidth = right + left;
-                if (boxWidth <= 0f || boxHeight <= 0f)
-                    continue;
+            var cos = MathF.Cos(angle);
+            var sin = MathF.Sin(angle);
+            var boxHeight = top + bottom;
+            var boxWidth = right + left;
+            if (boxWidth <= 0f || boxHeight <= 0f)
+                continue;
 
-                var offsetX = x * EastStride;
-                var offsetY = y * EastStride;
-                var endX = offsetX + cos * right + sin * bottom;
-                var endY = offsetY - sin * right + cos * bottom;
-                var startX = endX - boxWidth;
-                var startY = endY - boxHeight;
+            var offsetX = x * EastStride;
+            var offsetY = y * EastStride;
+            var endX = offsetX + cos * right + sin * bottom;
+            var endY = offsetY - sin * right + cos * bottom;
+            var startX = endX - boxWidth;
+            var startY = endY - boxHeight;
 
-                var x1 = Math.Clamp(MathF.Min(startX, endX) * scaleX, 0f, imageWidth);
-                var y1 = Math.Clamp(MathF.Min(startY, endY) * scaleY, 0f, imageHeight);
-                var x2 = Math.Clamp(MathF.Max(startX, endX) * scaleX, 0f, imageWidth);
-                var y2 = Math.Clamp(MathF.Max(startY, endY) * scaleY, 0f, imageHeight);
-                if (x2 <= x1 || y2 <= y1)
-                    continue;
+            var x1 = Math.Clamp(MathF.Min(startX, endX) * scaleX, 0f, imageWidth);
+            var y1 = Math.Clamp(MathF.Min(startY, endY) * scaleY, 0f, imageHeight);
+            var x2 = Math.Clamp(MathF.Max(startX, endX) * scaleX, 0f, imageWidth);
+            var y2 = Math.Clamp(MathF.Max(startY, endY) * scaleY, 0f, imageHeight);
+            if (x2 <= x1 || y2 <= y1)
+                continue;
 
-                result.Add(new EastCandidate(new Rect2f(x1, y1, x2 - x1, y2 - y1), confidence));
-            }
+            result.Add(new EastCandidate(new Rect2f(x1, y1, x2 - x1, y2 - y1), confidence));
+        }
 
         return result;
     }
@@ -807,9 +803,7 @@ internal sealed partial class VectorSearchService : IDisposable
         if (candidates.Count == 0)
             return [];
 
-        var sortedIndexes = Enumerable.Range(0, candidates.Count)
-            .OrderByDescending(i => candidates[i].Confidence)
-            .ToArray();
+        var sortedIndexes = Enumerable.Range(0, candidates.Count).OrderByDescending(i => candidates[i].Confidence).ToArray();
         var selected = new List<Rect2f>(candidates.Count);
 
         foreach (var idx in sortedIndexes)
@@ -1001,9 +995,7 @@ internal sealed partial class VectorSearchService : IDisposable
                 {
                     process.Kill(true);
                 }
-                catch
-                {
-                }
+                catch { }
                 _logger.LogWarning("Tesseract timed out after {TimeoutMs}ms", OcrTimeoutMs);
                 return OcrResult.Empty;
             }
@@ -1039,9 +1031,7 @@ internal sealed partial class VectorSearchService : IDisposable
                 {
                     File.Delete(tempFilePath);
                 }
-                catch
-                {
-                }
+                catch { }
             }
         }
     }

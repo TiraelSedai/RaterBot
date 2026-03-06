@@ -1,6 +1,6 @@
-using Shouldly;
 using OpenCvSharp;
 using RaterBot;
+using Shouldly;
 
 namespace RaterBot.Tests.Unit;
 
@@ -93,10 +93,7 @@ public class VectorSearchServiceTests
     [Fact]
     public void TokenDiceSimilarity_LowForDifferentText()
     {
-        var similarity = VectorSearchService.TokenDiceSimilarity(
-            "dogs and cats",
-            "sql migrations and telegram bots"
-        );
+        var similarity = VectorSearchService.TokenDiceSimilarity("dogs and cats", "sql migrations and telegram bots");
 
         similarity.ShouldBeLessThan(0.80f);
     }
@@ -179,11 +176,7 @@ public class VectorSearchServiceTests
     [Fact]
     public void ComputeUnionCoverageRatio_HandlesOverlapWithoutDoubleCounting()
     {
-        var boxes = new List<Rect2f>
-        {
-            new(0, 0, 10, 10),
-            new(5, 0, 10, 10),
-        };
+        var boxes = new List<Rect2f> { new(0, 0, 10, 10), new(5, 0, 10, 10) };
 
         var ratio = VectorSearchService.ComputeUnionCoverageRatio(boxes, imageWidth: 20, imageHeight: 10);
 
@@ -193,10 +186,7 @@ public class VectorSearchServiceTests
     [Fact]
     public void ComputeUnionCoverageRatio_ClampsOutOfBoundsToImageArea()
     {
-        var boxes = new List<Rect2f>
-        {
-            new(-5, -5, 10, 10),
-        };
+        var boxes = new List<Rect2f> { new(-5, -5, 10, 10) };
 
         var ratio = VectorSearchService.ComputeUnionCoverageRatio(boxes, imageWidth: 10, imageHeight: 10);
 
@@ -206,17 +196,8 @@ public class VectorSearchServiceTests
     [Fact]
     public void HasTwoDistinctFrameMatches_TrueWhenTwoPairsMatch()
     {
-        var incoming = new List<float[]>
-        {
-            new float[] { 1f, 0f },
-            new float[] { 0f, 1f },
-            new float[] { 0.7f, 0.7f },
-        };
-        var candidate = new List<float[]>
-        {
-            new float[] { 1f, 0f },
-            new float[] { 0f, 1f },
-        };
+        var incoming = new List<float[]> { new float[] { 1f, 0f }, new float[] { 0f, 1f }, new float[] { 0.7f, 0.7f } };
+        var candidate = new List<float[]> { new float[] { 1f, 0f }, new float[] { 0f, 1f } };
 
         var result = VectorSearchService.HasTwoDistinctFrameMatches(incoming, candidate, threshold: 0.96f);
 
@@ -226,16 +207,8 @@ public class VectorSearchServiceTests
     [Fact]
     public void HasTwoDistinctFrameMatches_FalseWhenOnlyOnePairMatches()
     {
-        var incoming = new List<float[]>
-        {
-            new float[] { 1f, 0f },
-            new float[] { 1f, 0f },
-        };
-        var candidate = new List<float[]>
-        {
-            new float[] { 1f, 0f },
-            new float[] { 0f, 1f },
-        };
+        var incoming = new List<float[]> { new float[] { 1f, 0f }, new float[] { 1f, 0f } };
+        var candidate = new List<float[]> { new float[] { 1f, 0f }, new float[] { 0f, 1f } };
 
         var result = VectorSearchService.HasTwoDistinctFrameMatches(incoming, candidate, threshold: 0.96f);
 
@@ -245,15 +218,8 @@ public class VectorSearchServiceTests
     [Fact]
     public void HasTwoDistinctFrameMatches_FalseWhenCandidateHasSingleFrame()
     {
-        var incoming = new List<float[]>
-        {
-            new float[] { 1f, 0f },
-            new float[] { 0f, 1f },
-        };
-        var candidate = new List<float[]>
-        {
-            new float[] { 1f, 0f },
-        };
+        var incoming = new List<float[]> { new float[] { 1f, 0f }, new float[] { 0f, 1f } };
+        var candidate = new List<float[]> { new float[] { 1f, 0f } };
 
         var result = VectorSearchService.HasTwoDistinctFrameMatches(incoming, candidate, threshold: 0.96f);
 

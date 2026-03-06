@@ -1,8 +1,8 @@
 using FluentMigrator.Runner;
 using LinqToDB;
+using LinqToDB.Data;
 using LinqToDB.Extensions.DependencyInjection;
 using LinqToDB.Extensions.Logging;
-using LinqToDB.Data;
 using RaterBot;
 using RaterBot.Database;
 using RaterBot.Database.Migrations;
@@ -68,9 +68,7 @@ using (var scope = host.Services.CreateScope())
             dbc.Execute("UPDATE \"VersionInfo\" SET \"Version\" = 20240629000000 WHERE \"Version\" = 20240629;");
             dbc.Execute("UPDATE \"VersionInfo\" SET \"Version\" = 20231203822340 WHERE \"Version\" = 202312038223400;");
         }
-        catch
-        {
-        }
+        catch { }
     }
 
     var migrationRunner = scope.ServiceProvider.GetRequiredService<IMigrationRunner>();

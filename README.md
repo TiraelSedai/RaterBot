@@ -13,6 +13,7 @@ Just add [@mediarater_bot](https://t.me/mediarater_bot) to your group and give i
 #### Docker
 Get from [GitHub Container Registry](https://github.com/TiraelSedai/RaterBot/pkgs/container/raterbot) or build from sources.
 You have to specify TELEGRAM_MEDIA_RATER_BOT_API env variable.
+If media downloads must go through a proxy, set TELEGRAM_MEDIA_RATER_PROXY to a proxy URL supported by yt-dlp and gallery-dl, for example `http://proxy:8080` or `socks5://user:pass@127.0.0.1:1080`.
 
 #### As standalone binary
 On top of TELEGRAM_MEDIA_RATER_BOT_API variable, you need to have yt-dlp installed and have the binary in PATH.

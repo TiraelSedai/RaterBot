@@ -1,7 +1,7 @@
+using RaterBot;
 using Shouldly;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
-using RaterBot;
 
 namespace RaterBot.Tests.Unit;
 
@@ -18,7 +18,12 @@ public class TelegramHelperTests
     [Fact]
     public void LinkToMessage_GroupWithUsername_ReturnsCorrectLink()
     {
-        var chat = new Chat { Id = -1001234567890, Type = ChatType.Group, Username = "testgroup" };
+        var chat = new Chat
+        {
+            Id = -1001234567890,
+            Type = ChatType.Group,
+            Username = "testgroup",
+        };
         var result = TelegramHelper.LinkToMessage(chat, 42);
         result.ShouldBe("https://t.me/testgroup/42");
     }
@@ -26,7 +31,12 @@ public class TelegramHelperTests
     [Fact]
     public void LinkToMessage_GroupWithoutUsername_ReturnsEmpty()
     {
-        var chat = new Chat { Id = -1001234567890, Type = ChatType.Group, Username = null };
+        var chat = new Chat
+        {
+            Id = -1001234567890,
+            Type = ChatType.Group,
+            Username = null,
+        };
         var result = TelegramHelper.LinkToMessage(chat, 42);
         result.ShouldBeEmpty();
     }
@@ -34,7 +44,12 @@ public class TelegramHelperTests
     [Fact]
     public void GetFirstLastName_WithBothNames_ReturnsCombined()
     {
-        var user = new User { Id = 1, FirstName = "John", LastName = "Doe" };
+        var user = new User
+        {
+            Id = 1,
+            FirstName = "John",
+            LastName = "Doe",
+        };
         var result = TelegramHelper.GetFirstLastName(user);
         result.ShouldBe("John Doe");
     }
@@ -42,7 +57,12 @@ public class TelegramHelperTests
     [Fact]
     public void GetFirstLastName_OnlyFirstName_ReturnsIt()
     {
-        var user = new User { Id = 1, FirstName = "John", LastName = null };
+        var user = new User
+        {
+            Id = 1,
+            FirstName = "John",
+            LastName = null,
+        };
         var result = TelegramHelper.GetFirstLastName(user);
         result.ShouldBe("John");
     }
@@ -50,7 +70,12 @@ public class TelegramHelperTests
     [Fact]
     public void GetFirstLastName_EmptyNames_ReturnsAnonymous()
     {
-        var user = new User { Id = 1, FirstName = "", LastName = null };
+        var user = new User
+        {
+            Id = 1,
+            FirstName = "",
+            LastName = null,
+        };
         var result = TelegramHelper.GetFirstLastName(user);
         result.ShouldBe("аноним");
     }
@@ -58,7 +83,12 @@ public class TelegramHelperTests
     [Fact]
     public void GetFirstLastName_WhitespaceNames_ReturnsAnonymous()
     {
-        var user = new User { Id = 1, FirstName = "   ", LastName = " " };
+        var user = new User
+        {
+            Id = 1,
+            FirstName = "   ",
+            LastName = " ",
+        };
         var result = TelegramHelper.GetFirstLastName(user);
         result.ShouldBe("аноним");
     }
@@ -66,7 +96,12 @@ public class TelegramHelperTests
     [Fact]
     public void UserEscaped_EscapesSpecialCharacters()
     {
-        var user = new User { Id = 1, FirstName = "Test_User", LastName = "[Bot]" };
+        var user = new User
+        {
+            Id = 1,
+            FirstName = "Test_User",
+            LastName = "[Bot]",
+        };
         var result = TelegramHelper.UserEscaped(user);
         result.ShouldContain("\\_");
         result.ShouldContain("\\[");
@@ -76,7 +111,12 @@ public class TelegramHelperTests
     [Fact]
     public void UserEscaped_EscapesAllSpecialChars()
     {
-        var user = new User { Id = 1, FirstName = "T*e_s`t", LastName = null };
+        var user = new User
+        {
+            Id = 1,
+            FirstName = "T*e_s`t",
+            LastName = null,
+        };
         var result = TelegramHelper.UserEscaped(user);
         result.ShouldContain("\\*");
         result.ShouldContain("\\_");
@@ -86,7 +126,12 @@ public class TelegramHelperTests
     [Fact]
     public void MentionUsername_ReturnsCorrectFormat()
     {
-        var user = new User { Id = 12345, FirstName = "John", LastName = null };
+        var user = new User
+        {
+            Id = 12345,
+            FirstName = "John",
+            LastName = null,
+        };
         var result = TelegramHelper.MentionUsername(user);
         result.ShouldStartWith("[От John](tg://user?id=12345)");
     }
