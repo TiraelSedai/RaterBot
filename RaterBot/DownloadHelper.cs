@@ -8,15 +8,22 @@ internal enum UrlType
     TikTok,
     Vk,
     Reddit,
+    Twitter,
     Youtube,
     EmbedableLink,
 }
 
-internal static class DownloadHelper
+internal interface IMediaDownloader
+{
+    Task<string[]> DownloadGalleryDl(string url);
+    string? DownloadYtDlp(string url, UrlType urlType);
+}
+
+internal sealed class ProcessMediaDownloader : IMediaDownloader
 {
     private static readonly string _tmp = Path.GetTempPath();
 
-    public static async Task<string[]> DownloadGalleryDl(string url)
+    public async Task<string[]> DownloadGalleryDl(string url)
     {
         var args = $"\"{url}\" --cookies db/cookies.txt -d {_tmp} -o browser=firefox";
 
@@ -57,7 +64,7 @@ internal static class DownloadHelper
         });
     }
 
-    public static void RemoveAfterDelay(IEnumerable<string> files) =>
+    private static void RemoveAfterDelay(IEnumerable<string> files) =>
         Task.Run(async () =>
         {
             await Task.Delay(TimeSpan.FromMinutes(5));
@@ -72,7 +79,7 @@ internal static class DownloadHelper
                 }
         });
 
-    public static string? DownloadYtDlp(string url, UrlType urlType)
+    public string? DownloadYtDlp(string url, UrlType urlType)
     {
         var ext = urlType == UrlType.Youtube ? "webm" : "mp4";
         var file = Path.Combine(_tmp, $"{Guid.NewGuid()}.{ext}");
@@ -95,6 +102,6 @@ internal static class DownloadHelper
             File.Delete(file);
             return null;
         }
-        return process.ExitCode == 0 ? file : null;
+        return process.ExitCode == 0 && File.Exists(file) ? file : null;
     }
 }

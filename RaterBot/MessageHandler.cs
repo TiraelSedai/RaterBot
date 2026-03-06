@@ -10,24 +10,28 @@ using Telegram.Bot.Types.ReplyMarkups;
 
 namespace RaterBot;
 
+internal readonly record struct SupportedSiteLink(UrlType Type, string Url, string? FallbackUrl = null);
+
 internal sealed class MessageHandler
 {
     private readonly SqliteDb _sqliteDb;
     private readonly ITelegramBotClient _botClient;
     private readonly ILogger<MessageHandler> _logger;
-
+    private readonly IMediaDownloader _mediaDownloader;
     private readonly VectorSearchService _vectorSearchService;
 
     public MessageHandler(
         ITelegramBotClient botClient,
         SqliteDb sqliteDb,
         ILogger<MessageHandler> logger,
+        IMediaDownloader mediaDownloader,
         VectorSearchService vectorSearchService
     )
     {
         _sqliteDb = sqliteDb;
         _botClient = botClient;
         _logger = logger;
+        _mediaDownloader = mediaDownloader;
         _vectorSearchService = vectorSearchService;
     }
 
@@ -133,19 +137,23 @@ internal sealed class MessageHandler
                         return;
                     }
 
-                    var (type, url) = FindSupportedSiteLink(msg);
-                    switch (type)
+                    var link = FindSupportedSiteLink(msg);
+                    switch (link?.Type)
                     {
                         case UrlType.Vk:
                         case UrlType.TikTok:
                         case UrlType.Youtube:
-                            await HandleYtDlp(update, url!, type);
+                            await HandleYtDlp(update, link.Value.Url, link.Value.Type);
+                            return;
+                        case UrlType.Twitter:
+                            if (!await HandleYtDlp(update, link.Value.Url, link.Value.Type))
+                                await HandleEmbedableLink(update, link.Value.FallbackUrl!);
                             return;
                         case UrlType.Reddit:
-                            await HandleGalleryDl(update, url!);
+                            await HandleGalleryDl(update, link.Value.Url);
                             break;
                         case UrlType.EmbedableLink:
-                            await HandleEmbedableLink(update, url!);
+                            await HandleEmbedableLink(update, link.Value.Url);
                             break;
                         default:
                             break;
@@ -194,10 +202,10 @@ internal sealed class MessageHandler
         await _botClient.DeleteMessage(msg.Chat, msg.MessageId);
     }
 
-    private static (UrlType, string?) FindSupportedSiteLink(Message msg)
+    internal static SupportedSiteLink? FindSupportedSiteLink(Message msg)
     {
         if (msg.Text == null || msg.Entities == null)
-            return (UrlType.NotFound, null);
+            return null;
         var entities = msg.Entities.Where(e => e.Type == MessageEntityType.Url);
 
         foreach (var entity in entities)
@@ -213,22 +221,22 @@ internal sealed class MessageHandler
                 || host.EndsWith("fxbsky.app")
                 || host.Equals("coub.com")
             )
-                return (UrlType.EmbedableLink, url.ToString());
+                return new SupportedSiteLink(UrlType.EmbedableLink, url.ToString());
             if (host.EndsWith("tiktok.com"))
-                return (UrlType.TikTok, url.ToString());
+                return new SupportedSiteLink(UrlType.TikTok, url.ToString());
             if (host.EndsWith("vk.com"))
-                return (UrlType.Vk, url.ToString());
+                return new SupportedSiteLink(UrlType.Vk, url.ToString());
             if (host.EndsWith("twitter.com") || host.Equals("x.com"))
-                return (UrlType.EmbedableLink, $"https://fixupx.com{url.LocalPath}");
+                return new SupportedSiteLink(UrlType.Twitter, url.ToString(), $"https://fixupx.com{url.PathAndQuery}");
             if (host.EndsWith("instagram.com"))
-                return (UrlType.EmbedableLink, $"https://kkinstagram.com{url.LocalPath}");
+                return new SupportedSiteLink(UrlType.EmbedableLink, $"https://kkinstagram.com{url.LocalPath}");
             if (host.EndsWith("reddit.com"))
-                return (UrlType.Reddit, url.ToString());
+                return new SupportedSiteLink(UrlType.Reddit, url.ToString());
             if (host.EndsWith("youtube.com") && urlText.Contains("youtube.com/shorts"))
-                return (UrlType.Youtube, url.ToString());
+                return new SupportedSiteLink(UrlType.Youtube, url.ToString());
         }
 
-        return (UrlType.NotFound, null);
+        return null;
     }
 
     private async Task HandleDelete(Update update, User bot)
@@ -767,7 +775,7 @@ internal sealed class MessageHandler
         FileStream[] disposeMe = [];
         try
         {
-            var fileList = await DownloadHelper.DownloadGalleryDl(link);
+            var fileList = await _mediaDownloader.DownloadGalleryDl(link);
             if (fileList.Length == 0)
                 return;
 
@@ -837,7 +845,7 @@ internal sealed class MessageHandler
         }
     }
 
-    private async Task HandleYtDlp(Update update, string videoLink, UrlType urlType)
+    private async Task<bool> HandleYtDlp(Update update, string videoLink, UrlType urlType)
     {
         _logger.LogInformation("New YtDlp supported message");
 
@@ -852,11 +860,11 @@ internal sealed class MessageHandler
 
         try
         {
-            var tempFileName = DownloadHelper.DownloadYtDlp(videoLink, urlType);
+            var tempFileName = _mediaDownloader.DownloadYtDlp(videoLink, urlType);
             if (tempFileName == null)
             {
                 _logger.LogInformation("Could not download the video, check logs");
-                return;
+                return false;
             }
 
             await using (var stream = System.IO.File.Open(tempFileName, FileMode.Open, FileAccess.Read))
@@ -872,10 +880,12 @@ internal sealed class MessageHandler
             }
 
             _ = _botClient.DeleteMessage(msg.Chat.Id, msg.MessageId);
+            return true;
         }
         catch (Exception e)
         {
             _logger.LogInformation(e, nameof(HandleYtDlp));
+            return false;
         }
         finally
         {

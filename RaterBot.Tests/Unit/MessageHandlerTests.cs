@@ -18,6 +18,7 @@ public class MessageHandlerTests : SqliteDbTestBase
 {
     private readonly Mock<ITelegramBotClient> _mockBot = new();
     private readonly Mock<ILogger<MessageHandler>> _mockLogger = new();
+    private readonly Mock<IMediaDownloader> _mockDownloader = new();
 
     [Fact]
     public void SelectHighestResolutionPhotoFileId_PicksLargestVariant()
@@ -136,7 +137,8 @@ public class MessageHandlerTests : SqliteDbTestBase
         return new VectorSearchService(Mock.Of<ILogger<VectorSearchService>>(), _mockBot.Object, scopeFactory);
     }
 
-    private MessageHandler CreateHandler() => new(_mockBot.Object, Db, _mockLogger.Object, CreateVectorSearchService());
+    private MessageHandler CreateHandler() =>
+        new(_mockBot.Object, Db, _mockLogger.Object, _mockDownloader.Object, CreateVectorSearchService());
 
     [Fact]
     public async Task HandleCallbackData_PlusVote_CreatesInteraction()
@@ -269,6 +271,97 @@ public class MessageHandlerTests : SqliteDbTestBase
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Fact]
+    public async Task HandleUpdate_TwitterLink_DownloadSuccess_SendsVideo()
+    {
+        const long chatId = -1001234567890L;
+        const int messageId = 42;
+        const int sentVideoMessageId = 600;
+        var tempFile = Path.GetTempFileName();
+        await File.WriteAllBytesAsync(tempFile, [1, 2, 3]);
+
+        try
+        {
+            SetupBotResponses(sendMessageMessageId: 500, sendVideoMessageId: sentVideoMessageId);
+            _mockDownloader.Setup(x => x.DownloadYtDlp("https://x.com/test/status/123", UrlType.Twitter)).Returns(tempFile);
+
+            var handler = CreateHandler();
+            var update = CreateTextUpdate(chatId, messageId, 111L, "https://x.com/test/status/123");
+            var botUser = new User { Id = 999, Username = "testbot" };
+
+            await handler.HandleUpdate(botUser, update);
+
+            _mockBot.Verify(x => x.SendRequest(It.IsAny<SendVideoRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+            _mockBot.Verify(x => x.SendRequest(
+                It.Is<SendMessageRequest>(r => r.Text != null && r.Text.Contains("fixupx.com")),
+                It.IsAny<CancellationToken>()), Times.Never);
+            _mockDownloader.Verify(x => x.DownloadYtDlp("https://x.com/test/status/123", UrlType.Twitter), Times.Once);
+
+            var posts = await Db.Posts.ToListAsync();
+            posts.Count.ShouldBe(1);
+            posts[0].MessageId.ShouldBe(sentVideoMessageId);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task HandleUpdate_TwitterLink_DownloadFailure_FallsBackToFixupx()
+    {
+        const long chatId = -1001234567890L;
+        const int messageId = 42;
+        const int sentMessageId = 500;
+        const string twitterUrl = "https://x.com/test/status/123?t=abc";
+        const string fallbackUrl = "https://fixupx.com/test/status/123?t=abc";
+
+        SetupBotResponses(sendMessageMessageId: sentMessageId, sendVideoMessageId: 600);
+        _mockDownloader.Setup(x => x.DownloadYtDlp(twitterUrl, UrlType.Twitter)).Returns((string?)null);
+
+        var handler = CreateHandler();
+        var update = CreateTextUpdate(chatId, messageId, 111L, twitterUrl);
+        var botUser = new User { Id = 999, Username = "testbot" };
+
+        await handler.HandleUpdate(botUser, update);
+
+        _mockBot.Verify(x => x.SendRequest(It.IsAny<SendVideoRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+        _mockBot.Verify(x => x.SendRequest(
+            It.Is<SendMessageRequest>(r => r.Text != null && r.Text.Contains(fallbackUrl)),
+            It.IsAny<CancellationToken>()), Times.Once);
+        _mockDownloader.Verify(x => x.DownloadYtDlp(twitterUrl, UrlType.Twitter), Times.Once);
+
+        var posts = await Db.Posts.ToListAsync();
+        posts.Count.ShouldBe(1);
+        posts[0].MessageId.ShouldBe(sentMessageId);
+    }
+
+    [Fact]
+    public void FindSupportedSiteLink_FixupxLink_SkipsDownloaderFallback()
+    {
+        var message = CreateTextMessage(-1001234567890L, 42, 111L, "https://fixupx.com/test/status/123");
+
+        var result = MessageHandler.FindSupportedSiteLink(message);
+
+        result.HasValue.ShouldBeTrue();
+        result.Value.Type.ShouldBe(UrlType.EmbedableLink);
+        result.Value.Url.ShouldBe("https://fixupx.com/test/status/123");
+        result.Value.FallbackUrl.ShouldBeNull();
+    }
+
+    [Fact]
+    public void FindSupportedSiteLink_TiktokLink_RemainsYtDlpSource()
+    {
+        var message = CreateTextMessage(-1001234567890L, 42, 111L, "https://www.tiktok.com/@test/video/123");
+
+        var result = MessageHandler.FindSupportedSiteLink(message);
+
+        result.HasValue.ShouldBeTrue();
+        result.Value.Type.ShouldBe(UrlType.TikTok);
+        result.Value.Url.ShouldBe("https://www.tiktok.com/@test/video/123");
+        result.Value.FallbackUrl.ShouldBeNull();
+    }
+
     private static Update CreateCallbackUpdate(long chatId, long messageId, long userId, string callbackData)
     {
         var chat = new Chat { Id = chatId, Type = ChatType.Supergroup };
@@ -278,13 +371,36 @@ public class MessageHandlerTests : SqliteDbTestBase
         return new Update { CallbackQuery = callbackQuery };
     }
 
+    private void SetupBotResponses(int sendMessageMessageId, int sendVideoMessageId)
+    {
+        _mockBot.Setup(x => x.SendRequest(It.IsAny<SendMessageRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateMessage(new Chat { Id = 1, Type = ChatType.Supergroup }, sendMessageMessageId));
+        _mockBot.Setup(x => x.SendRequest(It.IsAny<SendVideoRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateMessage(new Chat { Id = 1, Type = ChatType.Supergroup }, sendVideoMessageId));
+        _mockBot.Setup(x => x.SendRequest(It.IsAny<DeleteMessageRequest>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
+    }
+
+    private static Update CreateTextUpdate(long chatId, int messageId, long userId, string text) =>
+        new() { Message = CreateTextMessage(chatId, messageId, userId, text) };
+
+    private static Message CreateTextMessage(long chatId, int messageId, long userId, string text)
+    {
+        var chat = new Chat { Id = chatId, Type = ChatType.Supergroup };
+        var message = CreateMessage(chat, messageId);
+        SetMessageProperty(message, nameof(Message.Text), text);
+        SetMessageProperty(message, nameof(Message.Entities), new[] { new MessageEntity { Type = MessageEntityType.Url, Offset = 0, Length = text.Length } });
+        SetMessageProperty(message, nameof(Message.From), new User { Id = userId, FirstName = "Test", Username = "testuser" });
+        return message;
+    }
+
     private static Message CreateMessage(Chat chat, int messageId)
     {
         var message = System.Text.Json.JsonSerializer.Deserialize<Message>("{}")!;
-        var chatProp = typeof(Message).GetProperty(nameof(Message.Chat))!;
-        var idProp = typeof(Message).GetProperty("Id")!;
-        chatProp.SetValue(message, chat);
-        idProp.SetValue(message, messageId);
+        SetMessageProperty(message, nameof(Message.Chat), chat);
+        SetMessageProperty(message, "Id", messageId);
         return message;
     }
+
+    private static void SetMessageProperty(Message message, string propertyName, object value) =>
+        typeof(Message).GetProperty(propertyName)!.SetValue(message, value);
 }

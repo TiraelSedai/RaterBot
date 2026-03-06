@@ -20,6 +20,7 @@ var host = Host.CreateDefaultBuilder(args)
             services.AddHostedService<Worker>();
             services.AddHostedService<TopPostDayService>();
             services.AddScoped<MessageHandler>();
+            services.AddSingleton<IMediaDownloader, ProcessMediaDownloader>();
             services.AddSingleton<ITelegramBotClient>(_ => new TelegramBotClient(
                 Environment.GetEnvironmentVariable("TELEGRAM_MEDIA_RATER_BOT_API")
                     ?? throw new Exception("TELEGRAM_MEDIA_RATER_BOT_API environment variable not set")
