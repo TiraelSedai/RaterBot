@@ -18,14 +18,14 @@ internal sealed class MessageHandler
     private readonly ITelegramBotClient _botClient;
     private readonly ILogger<MessageHandler> _logger;
     private readonly IMediaDownloader _mediaDownloader;
-    private readonly VectorSearchService _vectorSearchService;
+    private readonly IVectorSearchService _vectorSearchService;
 
     public MessageHandler(
         ITelegramBotClient botClient,
         SqliteDb sqliteDb,
         ILogger<MessageHandler> logger,
         IMediaDownloader mediaDownloader,
-        VectorSearchService vectorSearchService
+        IVectorSearchService vectorSearchService
     )
     {
         _sqliteDb = sqliteDb;
@@ -791,11 +791,12 @@ internal sealed class MessageHandler
                 return;
 
             var album = fileList.Length > 1;
-            var photo = Path.GetExtension(fileList.First()) is ".jpg" or ".png";
-            disposeMe = fileList.Select(f => System.IO.File.Open(f, FileMode.Open, FileAccess.Read)).ToArray();
+            var firstFile = fileList.First();
+            var photo = Path.GetExtension(firstFile) is ".jpg" or ".png";
 
             if (album)
             {
+                disposeMe = fileList.Select(f => System.IO.File.Open(f, FileMode.Open, FileAccess.Read)).ToArray();
                 var caption = TelegramHelper.MentionUsername(from);
                 var newMessage = await _botClient.SendMediaGroup(
                     msg.Chat.Id,
@@ -821,9 +822,10 @@ internal sealed class MessageHandler
             }
             else if (photo)
             {
+                await using var stream = System.IO.File.Open(firstFile, FileMode.Open, FileAccess.Read);
                 var newMessage = await _botClient.SendPhoto(
                     msg.Chat.Id,
-                    InputFile.FromStream(disposeMe.First()),
+                    InputFile.FromStream(stream),
                     replyMarkup: TelegramHelper.NewPostIkm,
                     caption: TelegramHelper.MentionUsername(from),
                     parseMode: ParseMode.MarkdownV2
@@ -832,14 +834,19 @@ internal sealed class MessageHandler
             }
             else
             {
-                var newMessage = await _botClient.SendVideo(
-                    msg.Chat.Id,
-                    InputFile.FromStream(disposeMe.First()),
-                    replyMarkup: TelegramHelper.NewPostIkm,
-                    caption: TelegramHelper.MentionUsername(from),
-                    parseMode: ParseMode.MarkdownV2
-                );
+                Message newMessage;
+                await using (var stream = File.Open(firstFile, FileMode.Open, FileAccess.Read))
+                {
+                    newMessage = await _botClient.SendVideo(
+                        msg.Chat.Id,
+                        InputFile.FromStream(stream),
+                        replyMarkup: TelegramHelper.NewPostIkm,
+                        caption: TelegramHelper.MentionUsername(from),
+                        parseMode: ParseMode.MarkdownV2
+                    );
+                }
                 InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+                _vectorSearchService.ProcessLocalMotion(firstFile, msg.Chat, newMessage);
             }
 
             _ = _botClient.DeleteMessage(msg.Chat.Id, msg.MessageId);
@@ -878,9 +885,10 @@ internal sealed class MessageHandler
                 return false;
             }
 
-            await using (var stream = System.IO.File.Open(tempFileName, FileMode.Open, FileAccess.Read))
+            Message newMessage;
+            await using (var stream = File.Open(tempFileName, FileMode.Open, FileAccess.Read))
             {
-                var newMessage = await _botClient.SendVideo(
+                newMessage = await _botClient.SendVideo(
                     msg.Chat.Id,
                     InputFile.FromStream(stream),
                     replyMarkup: TelegramHelper.NewPostIkm,
@@ -889,6 +897,7 @@ internal sealed class MessageHandler
                 );
                 InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
             }
+            _vectorSearchService.ProcessLocalMotion(tempFileName, msg.Chat, newMessage);
 
             _ = _botClient.DeleteMessage(msg.Chat.Id, msg.MessageId);
             return true;

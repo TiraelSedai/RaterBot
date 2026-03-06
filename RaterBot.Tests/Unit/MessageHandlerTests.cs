@@ -1,7 +1,5 @@
 using LinqToDB;
 using LinqToDB.Async;
-using LinqToDB.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Moq;
 using RaterBot.Database;
@@ -19,6 +17,7 @@ public class MessageHandlerTests : SqliteDbTestBase
     private readonly Mock<ITelegramBotClient> _mockBot = new();
     private readonly Mock<ILogger<MessageHandler>> _mockLogger = new();
     private readonly Mock<IMediaDownloader> _mockDownloader = new();
+    private readonly Mock<IVectorSearchService> _mockVectorSearch = new();
 
     [Fact]
     public void SelectHighestResolutionPhotoFileId_PicksLargestVariant()
@@ -153,17 +152,8 @@ public class MessageHandlerTests : SqliteDbTestBase
         selected.HasValue.ShouldBeFalse();
     }
 
-    private VectorSearchService CreateVectorSearchService()
-    {
-        var services = new ServiceCollection();
-        services.AddLinqToDBContext<SqliteDb>((_, options) => options.UseSQLite("Data Source=:memory:"));
-        var serviceProvider = services.BuildServiceProvider();
-        var scopeFactory = serviceProvider.GetRequiredService<IServiceScopeFactory>();
-        return new VectorSearchService(Mock.Of<ILogger<VectorSearchService>>(), _mockBot.Object, scopeFactory);
-    }
-
     private MessageHandler CreateHandler() =>
-        new(_mockBot.Object, Db, _mockLogger.Object, _mockDownloader.Object, CreateVectorSearchService());
+        new(_mockBot.Object, Db, _mockLogger.Object, _mockDownloader.Object, _mockVectorSearch.Object);
 
     [Fact]
     public async Task HandleCallbackData_PlusVote_CreatesInteraction()
@@ -341,6 +331,10 @@ public class MessageHandlerTests : SqliteDbTestBase
                 Times.Never
             );
             _mockDownloader.Verify(x => x.DownloadYtDlp("https://x.com/test/status/123", UrlType.Twitter), Times.Once);
+            _mockVectorSearch.Verify(
+                x => x.ProcessLocalMotion(tempFile, It.Is<Chat>(c => c.Id == chatId), It.Is<MessageId>(m => m.Id == sentVideoMessageId)),
+                Times.Once
+            );
 
             var posts = await Db.Posts.ToListAsync();
             posts.Count.ShouldBe(1);
@@ -380,6 +374,7 @@ public class MessageHandlerTests : SqliteDbTestBase
             Times.Once
         );
         _mockDownloader.Verify(x => x.DownloadYtDlp(twitterUrl, UrlType.Twitter), Times.Once);
+        _mockVectorSearch.Verify(x => x.ProcessLocalMotion(It.IsAny<string>(), It.IsAny<Chat>(), It.IsAny<MessageId>()), Times.Never);
 
         var posts = await Db.Posts.ToListAsync();
         posts.Count.ShouldBe(1);
@@ -406,17 +401,52 @@ public class MessageHandlerTests : SqliteDbTestBase
         _mockBot.Verify(x => x.SendRequest(It.IsAny<SendVideoRequest>(), It.IsAny<CancellationToken>()), Times.Never);
         _mockBot.Verify(
             x =>
-                x.SendRequest(
-                    It.Is<SendMessageRequest>(r => r.Text != null && r.Text.Contains(youtubeUrl)),
-                    It.IsAny<CancellationToken>()
-                ),
+                x.SendRequest(It.Is<SendMessageRequest>(r => r.Text != null && r.Text.Contains(youtubeUrl)), It.IsAny<CancellationToken>()),
             Times.Once
         );
         _mockDownloader.Verify(x => x.DownloadYtDlp(youtubeUrl, UrlType.Youtube), Times.Once);
+        _mockVectorSearch.Verify(x => x.ProcessLocalMotion(It.IsAny<string>(), It.IsAny<Chat>(), It.IsAny<MessageId>()), Times.Never);
 
         var posts = await Db.Posts.ToListAsync();
         posts.Count.ShouldBe(1);
         posts[0].MessageId.ShouldBe(sentMessageId);
+    }
+
+    [Fact]
+    public async Task HandleUpdate_RedditLink_SingleVideo_QueuesMotionDedup()
+    {
+        const long chatId = -1001234567890L;
+        const int messageId = 42;
+        const int sentVideoMessageId = 600;
+        const string redditUrl = "https://www.reddit.com/r/test/comments/abc123/sample/";
+        var tempFile = Path.GetTempFileName();
+        await File.WriteAllBytesAsync(tempFile, [1, 2, 3]);
+
+        try
+        {
+            SetupBotResponses(sendMessageMessageId: 500, sendVideoMessageId: sentVideoMessageId);
+            _mockDownloader.Setup(x => x.DownloadGalleryDl(redditUrl)).ReturnsAsync([tempFile]);
+
+            var handler = CreateHandler();
+            var update = CreateTextUpdate(chatId, messageId, 111L, redditUrl);
+            var botUser = new User { Id = 999, Username = "testbot" };
+
+            await handler.HandleUpdate(botUser, update);
+
+            _mockBot.Verify(x => x.SendRequest(It.IsAny<SendVideoRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+            _mockVectorSearch.Verify(
+                x => x.ProcessLocalMotion(tempFile, It.Is<Chat>(c => c.Id == chatId), It.Is<MessageId>(m => m.Id == sentVideoMessageId)),
+                Times.Once
+            );
+
+            var posts = await Db.Posts.ToListAsync();
+            posts.Count.ShouldBe(1);
+            posts[0].MessageId.ShouldBe(sentVideoMessageId);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
     }
 
     [Fact]

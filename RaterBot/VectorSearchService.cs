@@ -20,7 +20,13 @@ using Telegram.Bot.Types;
 
 namespace RaterBot;
 
-internal sealed partial class VectorSearchService : IDisposable
+internal interface IVectorSearchService
+{
+    void Process(string fileId, VectorMediaKind mediaKind, Chat chat, MessageId messageId);
+    void ProcessLocalMotion(string localMediaPath, Chat chat, MessageId messageId);
+}
+
+internal sealed partial class VectorSearchService : IDisposable, IVectorSearchService
 {
     private const float SimilarityThreshold = 0.96f;
     private const float TextCoverageThreshold = 0.25f;
@@ -54,7 +60,13 @@ internal sealed partial class VectorSearchService : IDisposable
     private readonly bool _isEnabled;
     private bool _missingTesseractLogged;
 
-    private record WorkItem(string FileId, VectorMediaKind MediaKind, Chat Chat, MessageId MessageId);
+    private abstract record WorkItem(VectorMediaKind MediaKind, Chat Chat, MessageId MessageId);
+
+    private sealed record TelegramWorkItem(string FileId, VectorMediaKind MediaKind, Chat Chat, MessageId MessageId)
+        : WorkItem(MediaKind, Chat, MessageId);
+
+    private sealed record LocalMotionWorkItem(string MediaPath, string TempDir, Chat Chat, MessageId MessageId)
+        : WorkItem(VectorMediaKind.Motion, Chat, MessageId);
 
     private record ProcessedPost(
         VectorMediaKind MediaKind,
@@ -143,8 +155,39 @@ internal sealed partial class VectorSearchService : IDisposable
 
     public void Process(string fileId, VectorMediaKind mediaKind, Chat chat, MessageId messageId)
     {
-        if (_isEnabled)
-            _channel.Writer.TryWrite(new WorkItem(fileId, mediaKind, chat, messageId));
+        if (_isEnabled && !string.IsNullOrWhiteSpace(fileId))
+            _channel.Writer.TryWrite(new TelegramWorkItem(fileId, mediaKind, chat, messageId));
+    }
+
+    public void ProcessLocalMotion(string localMediaPath, Chat chat, MessageId messageId)
+    {
+        if (!_isEnabled)
+            return;
+
+        if (string.IsNullOrWhiteSpace(localMediaPath) || !File.Exists(localMediaPath))
+        {
+            _logger.LogWarning("Skipping local motion processing because the source file is unavailable: {Path}", localMediaPath);
+            return;
+        }
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"raterbot-motion-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var copiedMediaPath = Path.Combine(tempDir, "input_media.bin");
+            File.Copy(localMediaPath, copiedMediaPath, overwrite: true);
+
+            if (!_channel.Writer.TryWrite(new LocalMotionWorkItem(copiedMediaPath, tempDir, chat, messageId)))
+            {
+                _logger.LogWarning("Unable to enqueue local motion work item");
+                DeleteDirectoryWithRetries(tempDir);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unable to stage local motion media for vector search");
+            DeleteDirectoryWithRetries(tempDir);
+        }
     }
 
     private async Task WorkLoop()
@@ -163,15 +206,18 @@ internal sealed partial class VectorSearchService : IDisposable
         }
     }
 
-    private async Task<ProcessedPost?> CalculateAndWriteFeatures(WorkItem item)
-    {
-        return item.MediaKind switch
+    private async Task<ProcessedPost?> CalculateAndWriteFeatures(WorkItem item) =>
+        item switch
         {
-            VectorMediaKind.Image => await CalculateAndWriteImageFeatures(item),
-            VectorMediaKind.Motion => await CalculateAndWriteMotionFeatures(item),
+            TelegramWorkItem telegramItem when item.MediaKind == VectorMediaKind.Image => await CalculateAndWriteImageFeatures(
+                telegramItem
+            ),
+            TelegramWorkItem telegramItem when item.MediaKind == VectorMediaKind.Motion => await CalculateAndWriteMotionFeatures(
+                telegramItem
+            ),
+            LocalMotionWorkItem localMotionItem => await CalculateAndWriteMotionFeatures(localMotionItem),
             _ => null,
         };
-    }
 
     private async Task CompareToExistingPosts(WorkItem item, ProcessedPost? processed)
     {
@@ -343,7 +389,7 @@ internal sealed partial class VectorSearchService : IDisposable
         }
     }
 
-    private async Task<ProcessedPost> CalculateAndWriteImageFeatures(WorkItem item)
+    private async Task<ProcessedPost> CalculateAndWriteImageFeatures(TelegramWorkItem item)
     {
         byte[] imageBytes;
         using (var ms = new MemoryStream())
@@ -406,15 +452,13 @@ internal sealed partial class VectorSearchService : IDisposable
 
     private async Task<ProcessedPost?> CalculateAndWriteMotionFeatures(WorkItem item)
     {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"raterbot-motion-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempDir);
+        var prepared = await PrepareMotionMediaAsync(item);
+        if (prepared == null)
+            return null;
 
+        var (mediaPath, tempDir) = prepared.Value;
         try
         {
-            var mediaPath = Path.Combine(tempDir, "input_media.bin");
-            await using (var stream = File.Create(mediaPath))
-                await _bot.GetInfoAndDownloadFile(item.FileId, stream);
-
             var keyframePaths = ExtractKeyframePaths(mediaPath, tempDir);
             var embeddings = new List<float[]>(Math.Min(MotionMaxKeyframes, keyframePaths.Count));
             foreach (var keyframePath in keyframePaths)
@@ -466,6 +510,34 @@ internal sealed partial class VectorSearchService : IDisposable
         finally
         {
             DeleteDirectoryWithRetries(tempDir);
+        }
+    }
+
+    private async Task<(string MediaPath, string TempDir)?> PrepareMotionMediaAsync(WorkItem item)
+    {
+        switch (item)
+        {
+            case LocalMotionWorkItem localItem:
+                return (localItem.MediaPath, localItem.TempDir);
+            case TelegramWorkItem telegramItem:
+            {
+                var tempDir = Path.Combine(Path.GetTempPath(), $"raterbot-motion-{Guid.NewGuid():N}");
+                Directory.CreateDirectory(tempDir);
+                var mediaPath = Path.Combine(tempDir, "input_media.bin");
+                try
+                {
+                    await using var stream = File.Create(mediaPath);
+                    await _bot.GetInfoAndDownloadFile(telegramItem.FileId, stream);
+                    return (mediaPath, tempDir);
+                }
+                catch
+                {
+                    DeleteDirectoryWithRetries(tempDir);
+                    throw;
+                }
+            }
+            default:
+                return null;
         }
     }
 

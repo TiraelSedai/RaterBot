@@ -28,6 +28,7 @@ var host = Host.CreateDefaultBuilder(args)
             services.AddSingleton<Config>();
             services.AddSingleton<RaterBot.Polly>();
             services.AddSingleton<VectorSearchService>();
+            services.AddSingleton<IVectorSearchService>(provider => provider.GetRequiredService<VectorSearchService>());
             services.AddSerilog(
                 (services, configuration) =>
                     configuration
