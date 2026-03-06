@@ -387,6 +387,39 @@ public class MessageHandlerTests : SqliteDbTestBase
     }
 
     [Fact]
+    public async Task HandleUpdate_YoutubeLink_DownloadFailure_FallsBackToOriginalLink()
+    {
+        const long chatId = -1001234567890L;
+        const int messageId = 42;
+        const int sentMessageId = 500;
+        const string youtubeUrl = "https://www.youtube.com/watch?v=abc123";
+
+        SetupBotResponses(sendMessageMessageId: sentMessageId, sendVideoMessageId: 600);
+        _mockDownloader.Setup(x => x.DownloadYtDlp(youtubeUrl, UrlType.Youtube)).Returns((string?)null);
+
+        var handler = CreateHandler();
+        var update = CreateTextUpdate(chatId, messageId, 111L, youtubeUrl);
+        var botUser = new User { Id = 999, Username = "testbot" };
+
+        await handler.HandleUpdate(botUser, update);
+
+        _mockBot.Verify(x => x.SendRequest(It.IsAny<SendVideoRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+        _mockBot.Verify(
+            x =>
+                x.SendRequest(
+                    It.Is<SendMessageRequest>(r => r.Text != null && r.Text.Contains(youtubeUrl)),
+                    It.IsAny<CancellationToken>()
+                ),
+            Times.Once
+        );
+        _mockDownloader.Verify(x => x.DownloadYtDlp(youtubeUrl, UrlType.Youtube), Times.Once);
+
+        var posts = await Db.Posts.ToListAsync();
+        posts.Count.ShouldBe(1);
+        posts[0].MessageId.ShouldBe(sentMessageId);
+    }
+
+    [Fact]
     public void FindSupportedSiteLink_FixupxLink_SkipsDownloaderFallback()
     {
         var message = CreateTextMessage(-1001234567890L, 42, 111L, "https://fixupx.com/test/status/123");
@@ -410,6 +443,34 @@ public class MessageHandlerTests : SqliteDbTestBase
         result.Value.Type.ShouldBe(UrlType.TikTok);
         result.Value.Url.ShouldBe("https://www.tiktok.com/@test/video/123");
         result.Value.FallbackUrl.ShouldBeNull();
+    }
+
+    [Fact]
+    public void FindSupportedSiteLink_YoutubeWatchLink_UsesDownloaderWithOriginalFallback()
+    {
+        const string youtubeUrl = "https://www.youtube.com/watch?v=abc123";
+        var message = CreateTextMessage(-1001234567890L, 42, 111L, youtubeUrl);
+
+        var result = MessageHandler.FindSupportedSiteLink(message);
+
+        result.HasValue.ShouldBeTrue();
+        result.Value.Type.ShouldBe(UrlType.Youtube);
+        result.Value.Url.ShouldBe(youtubeUrl);
+        result.Value.FallbackUrl.ShouldBe(youtubeUrl);
+    }
+
+    [Fact]
+    public void FindSupportedSiteLink_YoutuBeLink_UsesDownloaderWithOriginalFallback()
+    {
+        const string youtubeUrl = "https://youtu.be/abc123";
+        var message = CreateTextMessage(-1001234567890L, 42, 111L, youtubeUrl);
+
+        var result = MessageHandler.FindSupportedSiteLink(message);
+
+        result.HasValue.ShouldBeTrue();
+        result.Value.Type.ShouldBe(UrlType.Youtube);
+        result.Value.Url.ShouldBe(youtubeUrl);
+        result.Value.FallbackUrl.ShouldBe(youtubeUrl);
     }
 
     private static Update CreateCallbackUpdate(long chatId, long messageId, long userId, string callbackData)

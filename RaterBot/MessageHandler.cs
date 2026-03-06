@@ -142,10 +142,8 @@ internal sealed class MessageHandler
                     {
                         case UrlType.Vk:
                         case UrlType.TikTok:
-                        case UrlType.Youtube:
-                            await HandleYtDlp(update, link.Value.Url, link.Value.Type);
-                            return;
                         case UrlType.Twitter:
+                        case UrlType.Youtube:
                             if (!await HandleYtDlp(update, link.Value.Url, link.Value.Type))
                                 await HandleEmbedableLink(update, link.Value.FallbackUrl!);
                             return;
@@ -232,11 +230,24 @@ internal sealed class MessageHandler
                 return new SupportedSiteLink(UrlType.EmbedableLink, $"https://kkinstagram.com{url.LocalPath}");
             if (host.EndsWith("reddit.com"))
                 return new SupportedSiteLink(UrlType.Reddit, url.ToString());
-            if (host.EndsWith("youtube.com") && urlText.Contains("youtube.com/shorts"))
-                return new SupportedSiteLink(UrlType.Youtube, url.ToString());
+            if (IsYoutubeVideoLink(url))
+                return new SupportedSiteLink(UrlType.Youtube, url.ToString(), url.ToString());
         }
 
         return null;
+    }
+
+    private static bool IsYoutubeVideoLink(Uri url)
+    {
+        var host = url.Host;
+        if (host.Equals("youtu.be"))
+            return !string.IsNullOrWhiteSpace(url.AbsolutePath.Trim('/'));
+
+        if (!host.EndsWith("youtube.com"))
+            return false;
+
+        return url.AbsolutePath.Equals("/watch", StringComparison.OrdinalIgnoreCase)
+            || url.AbsolutePath.StartsWith("/shorts/", StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task HandleDelete(Update update, User bot)
