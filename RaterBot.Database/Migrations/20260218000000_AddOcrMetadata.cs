@@ -7,10 +7,10 @@ public class AddOcrMetadata : Migration
 {
     public override void Up()
     {
-        Alter.Table(nameof(Post)).AddColumn(nameof(Post.TextCoverageRatio)).AsDouble().Nullable();
-        Alter.Table(nameof(Post)).AddColumn(nameof(Post.OcrTextNormalized)).AsString().Nullable();
-        Alter.Table(nameof(Post)).AddColumn(nameof(Post.OcrAvgConfidence)).AsDouble().Nullable();
-        Alter.Table(nameof(Post)).AddColumn(nameof(Post.IsTextHeavy)).AsBoolean().Nullable();
+        Alter.Table(nameof(Post)).AddColumn("TextCoverageRatio").AsDouble().Nullable();
+        Alter.Table(nameof(Post)).AddColumn("OcrTextNormalized").AsString().Nullable();
+        Alter.Table(nameof(Post)).AddColumn("OcrAvgConfidence").AsDouble().Nullable();
+        Alter.Table(nameof(Post)).AddColumn("IsTextHeavy").AsBoolean().Nullable();
     }
 
     public override void Down()

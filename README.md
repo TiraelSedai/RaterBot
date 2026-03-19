@@ -17,7 +17,7 @@ If media downloads must go through a proxy, set TELEGRAM_MEDIA_RATER_PROXY to a 
 
 #### As standalone binary
 On top of TELEGRAM_MEDIA_RATER_BOT_API variable, you need to have yt-dlp installed and have the binary in PATH.
-There should be also gallery-dl, ffmpeg, python and tesseract-ocr installed. For screenshot duplicate detection, put `frozen_east_text_detection.pb` either next to binary or into `models/` folder.
+There should be also gallery-dl, ffmpeg and python installed. For duplicate detection, put `vision_model_quantized.onnx` either next to binary or into `models/` folder.
 Please, refer to Dockerfile and see what gets apt installed.
 
 #### Arm64 (Apple M1 and other)

@@ -29,10 +29,6 @@ namespace RaterBot.Database
 		[Column("ClipEmbedding4"                                                                                  )] public byte[]?  ClipEmbedding4 { get; set; } // blob
 		[Column("ClipEmbedding5"                                                                                  )] public byte[]?  ClipEmbedding5 { get; set; } // blob
 		[Column("VectorMediaKind"                                                                                )] public int?     VectorMediaKind { get; set; } // integer
-		[Column("TextCoverageRatio"                                                                               )] public double?  TextCoverageRatio { get; set; } // real
-		[Column("OcrTextNormalized"                                                                               )] public string?  OcrTextNormalized { get; set; } // text
-		[Column("OcrAvgConfidence"                                                                                )] public double?  OcrAvgConfidence { get; set; } // real
-		[Column("IsTextHeavy"                                                                                     )] public bool?    IsTextHeavy { get; set; } // integer
 
 		#region Associations
 		/// <summary>
