@@ -7,7 +7,7 @@ COPY . .
 WORKDIR "/src/RaterBot"
 RUN dotnet publish "RaterBot.csproj" -c Release -r linux-x64 -o /publish --self-contained false
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+FROM mcr.microsoft.com/dotnet/runtime:10.0
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends curl ffmpeg libgomp1; \

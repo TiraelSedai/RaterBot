@@ -9,6 +9,7 @@
     <PublishTrimmed>true</PublishTrimmed>
     <TrimMode>partial</TrimMode>
     <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="RaterBot.Tests" />
@@ -20,7 +21,7 @@
     <PackageReference Include="FluentMigrator.Runner" Version="8.*" />
     <PackageReference Include="FluentMigrator.Runner.SQLite" Version="8.*" />
     <PackageReference Include="Polly" Version="8.*" />
-    <PackageReference Include="Serilog.AspNetCore" Version="10.*" />
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="10.*" />
     <PackageReference Include="Serilog.Formatting.Compact" Version="3.*" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.*" />
     <PackageReference Include="SixLabors.ImageSharp" Version="3.*" />

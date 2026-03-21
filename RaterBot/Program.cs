@@ -9,44 +9,51 @@ using RaterBot.Database.Migrations;
 using Serilog;
 using Serilog.Events;
 using Serilog.Formatting.Compact;
+using System.Runtime;
 using Telegram.Bot;
 
-var host = Host.CreateDefaultBuilder(args)
-    .ConfigureServices(
-        (hostContext, services) =>
-        {
-            var connStr =
-                hostContext.Configuration.GetConnectionString("Sqlite") ?? throw new ArgumentNullException("Sqlite config section is null");
-            services.AddHostedService<Worker>();
-            services.AddHostedService<TopPostDayService>();
-            services.AddScoped<MessageHandler>();
-            services.AddSingleton<IMediaDownloader, ProcessMediaDownloader>();
-            services.AddSingleton<ITelegramBotClient>(_ => new TelegramBotClient(
-                Environment.GetEnvironmentVariable("TELEGRAM_MEDIA_RATER_BOT_API")
-                    ?? throw new Exception("TELEGRAM_MEDIA_RATER_BOT_API environment variable not set")
-            ));
-            services.AddSingleton<Config>();
-            services.AddSingleton<RaterBot.Polly>();
-            services.AddSingleton<VectorSearchService>();
-            services.AddSingleton<IVectorSearchService>(provider => provider.GetRequiredService<VectorSearchService>());
-            services.AddSerilog(
-                (services, configuration) =>
-                    configuration
-                        .MinimumLevel.Debug()
-                        .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
-                        .MinimumLevel.Override("LinqToDB.Data.DataConnection", LogEventLevel.Warning)
-                        .Enrich.FromLogContext()
-                        .WriteTo.Console(new CompactJsonFormatter())
-            );
-            services
-                .AddFluentMigratorCore()
-                .ConfigureRunner(rb => rb.AddSQLite().WithGlobalConnectionString(connStr).ScanIn(typeof(Init).Assembly).For.Migrations())
-                .AddLogging(lb => lb.AddFluentMigratorConsole())
-                .BuildServiceProvider(false);
-            services.AddLinqToDBContext<SqliteDb>((provider, options) => options.UseSQLite(connStr).UseDefaultLogging(provider));
-        }
-    )
-    .Build();
+var builder = Host.CreateApplicationBuilder(args);
+
+var connStr = builder.Configuration.GetConnectionString("Sqlite") ?? throw new ArgumentNullException("Sqlite config section is null");
+
+builder.Services.AddHostedService<Worker>();
+builder.Services.AddHostedService<TopPostDayService>();
+builder.Services.AddScoped<MessageHandler>();
+builder.Services.AddSingleton<IMediaDownloader, ProcessMediaDownloader>();
+builder.Services.AddSingleton<ITelegramBotClient>(_ => new TelegramBotClient(
+    Environment.GetEnvironmentVariable("TELEGRAM_MEDIA_RATER_BOT_API")
+        ?? throw new Exception("TELEGRAM_MEDIA_RATER_BOT_API environment variable not set")
+));
+builder.Services.AddSingleton<Config>();
+builder.Services.AddSingleton<RaterBot.Polly>();
+builder.Services.AddSingleton<VectorSearchService>();
+builder.Services.AddSingleton<IVectorSearchService>(provider => provider.GetRequiredService<VectorSearchService>());
+builder.Services.AddSerilog(
+    (services, configuration) =>
+        configuration
+            .MinimumLevel.Debug()
+            .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
+            .MinimumLevel.Override("LinqToDB.Data.DataConnection", LogEventLevel.Warning)
+            .Enrich.FromLogContext()
+            .WriteTo.Console(new CompactJsonFormatter())
+);
+builder.Services
+    .AddFluentMigratorCore()
+    .ConfigureRunner(rb => rb.AddSQLite().WithGlobalConnectionString(connStr).ScanIn(typeof(Init).Assembly).For.Migrations())
+    .AddLogging(lb => lb.AddFluentMigratorConsole())
+    .BuildServiceProvider(false);
+builder.Services.AddLinqToDBContext<SqliteDb>((provider, options) => options.UseSQLite(connStr).UseDefaultLogging(provider));
+
+var host = builder.Build();
+
+var startupLogger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+startupLogger.LogInformation(
+    "GC mode: {GcMode}. IsServerGC: {IsServerGC}. DOTNET_gcServer: {DotnetGcServer}. COMPlus_gcServer: {ComPlusGcServer}",
+    GCSettings.IsServerGC ? "Server" : "Workstation",
+    GCSettings.IsServerGC,
+    Environment.GetEnvironmentVariable("DOTNET_gcServer"),
+    Environment.GetEnvironmentVariable("COMPlus_gcServer")
+);
 
 using (var scope = host.Services.CreateScope())
 {
