@@ -700,7 +700,7 @@ internal sealed class MessageHandler
             if (newReaction == interaction.Reaction)
             {
                 var reaction = newReaction ? "👍" : "👎";
-                await _botClient.AnswerCallbackQuery(update.CallbackQuery.Id, $"Ты уже поставил(-а) {reaction} этому посту");
+                _ = _botClient.AnswerCallbackQuery(update.CallbackQuery.Id, $"Ты уже поставил(-а) {reaction} этому посту");
                 _logger.LogInformation("No need to update reaction");
                 return;
             }
