@@ -751,7 +751,7 @@ internal sealed class MessageHandler
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "EditMessageReplyMarkup");
+            _logger.LogWarning(ex, "EditMessageReplyMarkup");
         }
     }
 
