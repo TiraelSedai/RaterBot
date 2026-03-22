@@ -258,7 +258,7 @@ namespace RaterBot
 
                 try
                 {
-                    await _botClient.ForwardMessages(forwardTo, sourceChatId, ids, disableNotification: true, protectContent: true);
+                    await _botClient.ForwardMessages(forwardTo, sourceChatId, ids.Order(), disableNotification: true, protectContent: true);
                     await Task.Delay(_delay);
                 }
                 catch (Exception e)
