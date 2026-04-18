@@ -726,7 +726,15 @@ internal sealed class MessageHandler
         {
             _logger.LogInformation("Deleting post. Dislikes = {Dislikes}, Likes = {Likes}", dislikes, likes);
             await DeleteMediaGroupIfNeeded(msg, post);
-            await _botClient.DeleteMessage(msg.Chat.Id, msg.MessageId);
+            try
+            {
+                await _botClient.DeleteMessage(msg.Chat.Id, msg.MessageId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "DeleteMessage");
+                return;
+            }
             await _sqliteDb.Interactions.DeleteAsync(i => i.PostId == post.Id);
             await _sqliteDb.Posts.DeleteAsync(p => p.Id == post.Id);
             await _botClient.AnswerCallbackQuery(update.CallbackQuery.Id, "Твой голос стал решающей каплей, этот пост удалён");

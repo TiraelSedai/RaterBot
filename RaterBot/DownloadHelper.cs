@@ -19,7 +19,7 @@ internal interface IMediaDownloader
     string? DownloadYtDlp(string url, UrlType urlType);
 }
 
-internal sealed class ProcessMediaDownloader(Config config) : IMediaDownloader
+internal sealed class ProcessMediaDownloader(Config config, ILogger<ProcessMediaDownloader> logger) : IMediaDownloader
 {
     private static readonly string _tmp = Path.GetTempPath();
     private readonly string? _proxy = config.DownloaderProxy;
@@ -29,6 +29,7 @@ internal sealed class ProcessMediaDownloader(Config config) : IMediaDownloader
         using var process = new Process { StartInfo = CreateGalleryDlStartInfo(url, _proxy, _tmp) };
 
         process.Start();
+        RedirectStandardErrorAsWarnings(process);
         KillIfNotExitedInAWhile(process);
 
         await process.WaitForExitAsync();
@@ -36,6 +37,16 @@ internal sealed class ProcessMediaDownloader(Config config) : IMediaDownloader
         var results = stdout.Split(Environment.NewLine, StringSplitOptions.RemoveEmptyEntries).Where(x => x.StartsWith(_tmp)).ToArray();
         RemoveAfterDelay(results);
         return process.ExitCode == 0 ? results : [];
+    }
+
+    private void RedirectStandardErrorAsWarnings(Process process)
+    {
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (!string.IsNullOrEmpty(e.Data))
+                logger.LogWarning("{ProcessName}: {StdErr}", process.StartInfo.FileName, e.Data);
+        };
+        process.BeginErrorReadLine();
     }
 
     private static void KillIfNotExitedInAWhile(Process process)
@@ -76,6 +87,7 @@ internal sealed class ProcessMediaDownloader(Config config) : IMediaDownloader
         using var process = new Process { StartInfo = CreateYtDlpStartInfo(url, file, _proxy) };
 
         process.Start();
+        RedirectStandardErrorAsWarnings(process);
         RemoveAfterDelay([file]);
 
         if (!process.WaitForExit(TimeSpan.FromMinutes(1)))
@@ -94,6 +106,7 @@ internal sealed class ProcessMediaDownloader(Config config) : IMediaDownloader
             FileName = "gallery-dl",
             CreateNoWindow = true,
             RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
 
         AddProxyArgument(startInfo, proxy);
@@ -109,7 +122,7 @@ internal sealed class ProcessMediaDownloader(Config config) : IMediaDownloader
 
     internal static ProcessStartInfo CreateYtDlpStartInfo(string url, string outputFile, string? proxy)
     {
-        var startInfo = new ProcessStartInfo { FileName = "yt-dlp", CreateNoWindow = true };
+        var startInfo = new ProcessStartInfo { FileName = "yt-dlp", CreateNoWindow = true, RedirectStandardError = true };
 
         AddProxyArgument(startInfo, proxy);
         startInfo.ArgumentList.Add("-o");
