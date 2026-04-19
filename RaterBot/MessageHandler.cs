@@ -216,6 +216,7 @@ internal sealed class MessageHandler
                 || host.EndsWith("fixupx.com")
                 || host.EndsWith("ddinstagram.com")
                 || host.EndsWith("kkinstagram.com")
+                || host.EndsWith("kksave.com")
                 || host.EndsWith("fxbsky.app")
                 || host.Equals("coub.com")
             )
@@ -226,8 +227,8 @@ internal sealed class MessageHandler
                 return new SupportedSiteLink(UrlType.Vk, url.ToString());
             if (host.EndsWith("twitter.com") || host.Equals("x.com"))
                 return new SupportedSiteLink(UrlType.Twitter, url.ToString(), $"https://fixupx.com{url.PathAndQuery}");
-            if (host.EndsWith("instagram.com"))
-                return new SupportedSiteLink(UrlType.EmbedableLink, $"https://kkinstagram.com{url.LocalPath}");
+            if (host.EndsWith("instagram.com") || host.Equals("kksave.com"))
+                return new SupportedSiteLink(UrlType.EmbedableLink, $"https://kksave.com{url.LocalPath}");
             if (host.EndsWith("reddit.com"))
                 return new SupportedSiteLink(UrlType.Reddit, url.ToString());
             if (IsYoutubeVideoLink(url))
