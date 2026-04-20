@@ -902,7 +902,8 @@ internal sealed class MessageHandler
                     InputFile.FromStream(stream),
                     replyMarkup: TelegramHelper.NewPostIkm,
                     caption: TelegramHelper.MentionUsername(from),
-                    parseMode: ParseMode.MarkdownV2
+                    parseMode: ParseMode.MarkdownV2,
+                    supportsStreaming: true
                 );
                 InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
             }
