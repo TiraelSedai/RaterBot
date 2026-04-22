@@ -122,7 +122,12 @@ internal sealed class ProcessMediaDownloader(Config config, ILogger<ProcessMedia
 
     internal static ProcessStartInfo CreateYtDlpStartInfo(string url, string outputFile, string? proxy)
     {
-        var startInfo = new ProcessStartInfo { FileName = "yt-dlp", CreateNoWindow = true, RedirectStandardError = true };
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = "yt-dlp",
+            CreateNoWindow = true,
+            RedirectStandardError = true,
+        };
 
         AddProxyArgument(startInfo, proxy);
         startInfo.ArgumentList.Add("-o");

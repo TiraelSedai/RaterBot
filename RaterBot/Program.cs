@@ -1,3 +1,4 @@
+using System.Runtime;
 using FluentMigrator.Runner;
 using LinqToDB;
 using LinqToDB.Data;
@@ -9,7 +10,6 @@ using RaterBot.Database.Migrations;
 using Serilog;
 using Serilog.Events;
 using Serilog.Formatting.Compact;
-using System.Runtime;
 using Telegram.Bot;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -37,8 +37,8 @@ builder.Services.AddSerilog(
             .Enrich.FromLogContext()
             .WriteTo.Console(new CompactJsonFormatter())
 );
-builder.Services
-    .AddFluentMigratorCore()
+builder
+    .Services.AddFluentMigratorCore()
     .ConfigureRunner(rb => rb.AddSQLite().WithGlobalConnectionString(connStr).ScanIn(typeof(Init).Assembly).For.Migrations())
     .AddLogging(lb => lb.AddFluentMigratorConsole())
     .BuildServiceProvider(false);
