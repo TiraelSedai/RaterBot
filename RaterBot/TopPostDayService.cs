@@ -48,6 +48,10 @@ namespace RaterBot
             var now = DateTime.UtcNow;
             var activeWindow = TimeSpan.FromDays(2);
             var day = TimeSpan.FromDays(1);
+
+            var textPostCutoff = now - TimeSpan.FromDays(7);
+            await db.TextPosts.Where(tp => !db.Posts.Any(p => p.Id == tp.PostId && p.Timestamp > textPostCutoff)).DeleteAsync();
+
             var activeChats = db.Posts.Where(x => x.Timestamp > now - activeWindow).Select(x => x.ChatId).Distinct().ToList();
 
             foreach (var chatId in activeChats.OrderBy(_ => Random.Shared.Next()))
@@ -105,7 +109,7 @@ namespace RaterBot
 
             var newTop = topPosts.Where(x => !previousTop.Select(tpd => tpd.PostId).Contains(x.MessageId)).ToList();
             _logger.LogDebug("New top {Top}", string.Join(',', newTop.Select(x => x.MessageId)));
-            await TryForward(chatId, newTop);
+            await TryForward(chat, db, newTop);
             foreach (var post in newTop)
             {
                 await NewTopPost(db, chatId, userIdToUser, post);
@@ -225,48 +229,115 @@ namespace RaterBot
 
         private readonly Dictionary<long, List<long>> _recentForwards = [];
 
-        private async Task TryForward(long sourceChatId, ICollection<Post> posts)
+        private async Task TryForward(Chat sourceChat, SqliteDb db, ICollection<Post> posts)
         {
-            var forwardConfigured = _config.ForwardTop.TryGetValue(sourceChatId, out var forwardTo);
-            if (forwardConfigured)
+            if (!_config.ForwardTop.TryGetValue(sourceChat.Id, out var forwardTo))
+                return;
+
+            if (!_recentForwards.TryGetValue(sourceChat.Id, out var recent))
+                recent = [];
+
+            var postIds = posts.Select(p => p.Id).ToList();
+            var textByPostId = db
+                .TextPosts.Where(tp => postIds.Contains(tp.PostId))
+                .ToDictionary(tp => tp.PostId, tp => tp.Text);
+
+            foreach (var post in posts)
             {
-                var ok = _recentForwards.TryGetValue(sourceChatId, out var recentForwards);
-                if (!ok)
-                    recentForwards = [];
-
-                List<int> ids = [];
-                foreach (var post in posts.Where(x => x.ReplyMessageId == null))
-                {
-                    if (!recentForwards!.Contains(post.MessageId))
-                    {
-                        recentForwards.Add(post.MessageId);
-                        ids.Add((int)post.MessageId);
-                    }
-                }
-
-                foreach (var post in posts.Where(x => x.ReplyMessageId != null))
-                {
-                    if (!recentForwards!.Contains(post.MessageId))
-                    {
-                        recentForwards.Add(post.MessageId);
-                        for (var i = post.ReplyMessageId!.Value; i < post.MessageId; i++)
-                            ids.Add((int)i);
-                    }
-                }
-
-                _recentForwards[sourceChatId] = [.. recentForwards!.TakeLast(100)];
+                if (recent.Contains(post.MessageId))
+                    continue;
 
                 try
                 {
-                    await _botClient.ForwardMessages(forwardTo, sourceChatId, ids.Order(), disableNotification: true, protectContent: true);
+                    await CopyOneTopPost(sourceChat, forwardTo, db, textByPostId, post);
+                    recent.Add(post.MessageId);
                     await Task.Delay(_delay);
                 }
                 catch (Exception e)
                 {
-                    _logger.LogWarning(e, "Exception forwarding top post to channel");
+                    _logger.LogWarning(e, "Exception copying top post to channel, chatId {ChatId} postId {PostId}", sourceChat.Id, post.MessageId);
                 }
             }
+
+            _recentForwards[sourceChat.Id] = [.. recent.TakeLast(100)];
         }
+
+        private async Task CopyOneTopPost(Chat sourceChat, long forwardTo, SqliteDb db, Dictionary<long, string> textByPostId, Post post)
+        {
+            var link = TelegramHelper.LinkToMessage(sourceChat, post.MessageId);
+            var hasLink = !string.IsNullOrEmpty(link);
+
+            if (post.ReplyMessageId != null)
+            {
+                var start = (int)post.ReplyMessageId.Value;
+                var count = (int)(post.MessageId - post.ReplyMessageId.Value);
+                var ids = Enumerable.Range(start, count).ToArray();
+                var copies = await _botClient.CopyMessages(
+                    forwardTo,
+                    sourceChat.Id,
+                    ids,
+                    disableNotification: true,
+                    protectContent: true
+                );
+                if (hasLink && copies.Length > 0)
+                {
+                    await _botClient.EditMessageCaption(
+                        forwardTo,
+                        copies[0].Id,
+                        $"[тык]({link})",
+                        parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2
+                    );
+                }
+                return;
+            }
+
+            if (textByPostId.TryGetValue(post.Id, out var userText))
+            {
+                var copy = await _botClient.CopyMessage(
+                    forwardTo,
+                    sourceChat.Id,
+                    (int)post.MessageId,
+                    disableNotification: true,
+                    protectContent: true
+                );
+                if (hasLink)
+                {
+                    await _botClient.EditMessageText(
+                        forwardTo,
+                        copy.Id,
+                        $"{HtmlEscape(userText)}\n\n<a href=\"{link}\">тык</a>",
+                        parseMode: Telegram.Bot.Types.Enums.ParseMode.Html
+                    );
+                }
+                return;
+            }
+
+            var captionCopy = await _botClient.CopyMessage(
+                forwardTo,
+                sourceChat.Id,
+                (int)post.MessageId,
+                disableNotification: true,
+                protectContent: true
+            );
+            if (!hasLink)
+                return;
+
+            try
+            {
+                await _botClient.EditMessageCaption(
+                    forwardTo,
+                    captionCopy.Id,
+                    $"[тык]({link})",
+                    parseMode: Telegram.Bot.Types.Enums.ParseMode.MarkdownV2
+                );
+            }
+            catch (ApiRequestException e) when (e.Message.Contains("there is no caption in the message to edit"))
+            {
+                // Legacy text-пост без записи в TextPosts — копия уже ушла как есть, линк не добавляем.
+            }
+        }
+
+        private static string HtmlEscape(string s) => s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 
         private async Task NewTopPost(SqliteDb db, long chatId, Dictionary<long, User> userIdToUser, Post post)
         {

@@ -196,7 +196,8 @@ internal sealed class MessageHandler
             $"{AtMentionUsername(from)}:{Environment.NewLine}{uri}",
             replyMarkup: TelegramHelper.NewPostIkm
         );
-        InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+        var postId = InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+        _sqliteDb.Insert(new TextPost { PostId = postId, Text = uri });
         await _botClient.DeleteMessage(msg.Chat, msg.MessageId);
     }
 
@@ -950,12 +951,13 @@ internal sealed class MessageHandler
         if (msg.From?.Id == replyTo.From?.Id)
             await _botClient.DeleteMessage(msg.Chat.Id, replyTo.MessageId);
 
-        InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+        var postId = InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId);
+        _sqliteDb.Insert(new TextPost { PostId = postId, Text = replyTo.Text ?? string.Empty });
     }
 
-    private void InsertIntoPosts(long chatId, long posterId, long messageId, long? replyToMessageId = null)
+    private long InsertIntoPosts(long chatId, long posterId, long messageId, long? replyToMessageId = null)
     {
-        _sqliteDb.Insert(
+        return _sqliteDb.InsertWithInt64Identity(
             new Post
             {
                 ChatId = chatId,

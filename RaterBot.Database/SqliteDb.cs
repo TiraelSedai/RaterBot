@@ -41,6 +41,7 @@ namespace RaterBot.Database
 		public ITable<Interaction>         Interactions          => this.GetTable<Interaction>();
 		public ITable<Post>                Posts                 => this.GetTable<Post>();
 		public ITable<TopPostsDay>         TopPostsDays          => this.GetTable<TopPostsDay>();
+		public ITable<TextPost>            TextPosts             => this.GetTable<TextPost>();
 	}
 
 	public static partial class ExtensionMethods
