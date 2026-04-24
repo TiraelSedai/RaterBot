@@ -178,6 +178,11 @@ internal sealed class MessageHandler
                     else
                         await HandleMediaMessage(msg);
                 }
+
+                if (msg.Type is MessageType.VideoNote)
+                {
+                    await HandleVideoNote(msg);
+                }
             }
         }
         catch (Exception ex)
@@ -1016,6 +1021,28 @@ internal sealed class MessageHandler
         catch (Exception ex)
         {
             _logger.LogError(ex, "Cannot handle media group");
+        }
+    }
+
+    private async Task HandleVideoNote(Message msg)
+    {
+        _logger.LogInformation("New video note");
+
+        var from = msg.From;
+        Debug.Assert(from != null);
+        try
+        {
+            var newMessage = await _botClient.SendMessage(
+                msg.Chat.Id,
+                "Оценить кружок",
+                replyParameters: msg,
+                replyMarkup: TelegramHelper.NewPostIkm
+            );
+            InsertIntoPosts(msg.Chat.Id, from.Id, newMessage.MessageId, msg.MessageId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Cannot handle video note");
         }
     }
 
