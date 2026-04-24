@@ -159,7 +159,7 @@ internal sealed class MessageHandler
                 }
 
                 if (
-                    msg.Type is MessageType.Photo or MessageType.Video or MessageType.Animation
+                    msg.Type is MessageType.Photo or MessageType.Video or MessageType.Animation or MessageType.VideoNote
                     || (
                         msg.Type == MessageType.Document
                         && msg.Document?.MimeType != null
