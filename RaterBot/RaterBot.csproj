@@ -6,8 +6,6 @@
     <Nullable>enable</Nullable>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     <AnalysisLevel>latest</AnalysisLevel>
-    <PublishTrimmed>true</PublishTrimmed>
-    <TrimMode>partial</TrimMode>
     <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
     <ServerGarbageCollection>false</ServerGarbageCollection>
   </PropertyGroup>
