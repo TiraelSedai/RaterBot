@@ -19,7 +19,7 @@ COPY --from=build /publish .
 RUN rm -f /app/onnxruntime.dll /app/onnxruntime_providers_shared.dll && \
     ln -s /app/libonnxruntime.so /app/onnxruntime.dll && \
     ln -s /app/libonnxruntime_providers_shared.so /app/onnxruntime_providers_shared.dll
-ENV LD_LIBRARY_PATH="/app:${LD_LIBRARY_PATH}"
+ENV LD_LIBRARY_PATH="/app"
 
 RUN mkdir -p /app/models && \
     curl -fL -o /app/models/vision_model_quantized.onnx \
