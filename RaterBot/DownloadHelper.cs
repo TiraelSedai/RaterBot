@@ -130,6 +130,10 @@ internal sealed class ProcessMediaDownloader(Config config, ILogger<ProcessMedia
         };
 
         AddProxyArgument(startInfo, proxy);
+        // yt-dlp's stderr is logged line-by-line as Warning; --no-warnings drops the noisy
+        // version-nag/extractor banners that otherwise trip the TooManyWarnings alert. Real
+        // failures still hit stderr as errors and a non-zero exit code.
+        startInfo.ArgumentList.Add("--no-warnings");
         startInfo.ArgumentList.Add("-o");
         startInfo.ArgumentList.Add(outputFile);
         startInfo.ArgumentList.Add("-f");

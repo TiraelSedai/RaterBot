@@ -48,6 +48,7 @@ public class ProcessMediaDownloaderTests
             .ShouldBe([
                 "--proxy",
                 "http://proxy:8080",
+                "--no-warnings",
                 "-o",
                 "/tmp/video.mp4",
                 "-f",
