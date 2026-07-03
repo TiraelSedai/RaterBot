@@ -306,12 +306,12 @@ internal sealed class MessageHandler
             return;
         }
 
-        var posts = _sqliteDb
-            .Posts.Where(p => p.ChatId == chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
-            .LoadWith(p => p.Interactions)
-            .ToList();
-
-        var controversialPosts = posts
+        var postStats = _sqliteDb
+            .Posts.Where(p =>
+                p.ChatId == chat.Id
+                && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period)
+                && p.Interactions.Any()
+            )
             .Select(p => new
             {
                 Post = p,
@@ -319,6 +319,10 @@ internal sealed class MessageHandler
                 Dislikes = p.Interactions.Count(i => !i.Reaction),
                 Magnitude = p.Interactions.Count(),
             })
+            .ToList();
+
+        // ratio ordering stays in memory: SQLite can't do the double division safely
+        var controversialPosts = postStats
             .OrderByDescending(x => x.Magnitude * (double)Math.Min(x.Dislikes, x.Likes) / Math.Max(x.Dislikes, x.Likes))
             .ThenByDescending(x => x.Dislikes)
             .Take(20)
@@ -357,21 +361,28 @@ internal sealed class MessageHandler
     {
         Debug.Assert(update.Message != null);
         var chat = update.Message.Chat;
-        var posts = _sqliteDb
-            .Posts.Where(p => p.ChatId == update.Message.Chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
-            .LoadWith(p => p.Interactions)
+        var postWithLikes = _sqliteDb
+            .Posts.Where(p =>
+                p.ChatId == chat.Id
+                && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period)
+                && p.Interactions.Any()
+            )
+            .Select(p => new
+            {
+                p.PosterId,
+                Likes = p.Interactions.Sum(i => i.Reaction ? 1 : -1),
+                HasUpvote = p.Interactions.Any(i => i.Reaction),
+            })
             .ToList();
 
-        if (!posts.SelectMany(x => x.Interactions).Any(i => i.Reaction))
+        if (!postWithLikes.Any(x => x.HasUpvote))
         {
             await _botClient.SendMessage(chat.Id, $"Не найдено заплюсованных постов за {ForLast(period)}");
             return;
         }
 
-        var postWithLikes = posts.Select(p => new { Post = p, Likes = p.Interactions.Sum(i => i.Reaction ? 1 : -1) });
-
         var topAuthors = postWithLikes
-            .GroupBy(x => x.Post.PosterId)
+            .GroupBy(x => x.PosterId)
             .Select(g => new
             {
                 PosterId = g.Key,
@@ -421,23 +432,23 @@ internal sealed class MessageHandler
             return;
         }
 
-        var posts = _sqliteDb
-            .Posts.Where(p => p.ChatId == chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period))
-            .LoadWith(p => p.Interactions)
+        var topPosts = _sqliteDb
+            .Posts.Where(p =>
+                p.ChatId == chat.Id
+                && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period)
+                && p.Interactions.Any()
+            )
+            .Select(p => new { Post = p, Likes = p.Interactions.Sum(i => i.Reaction ? 1 : -1) })
+            .OrderByDescending(x => x.Likes)
+            .Take(20)
             .ToList();
 
-        if (!posts.SelectMany(p => p.Interactions).Any())
+        if (topPosts.Count == 0)
         {
             await _botClient.SendMessage(chat.Id, $"Не найдено заплюсованных постов за {ForLast(period)}");
             _logger.LogInformation($"{nameof(HandleTopPosts)} - no up-voted posts, skipping");
             return;
         }
-
-        var topPosts = posts
-            .Select(p => new { Post = p, Likes = p.Interactions.Sum(i => i.Reaction ? 1 : -1) })
-            .OrderByDescending(x => x.Likes)
-            .Take(20)
-            .ToList();
 
         var userIds = topPosts.Select(x => x.Post.PosterId).Distinct().ToList();
         var userIdToUser = await TelegramHelper.GetTelegramUsers(chat, userIds, _botClient);
@@ -516,26 +527,27 @@ internal sealed class MessageHandler
             return;
         }
 
-        var posts = _sqliteDb
-            .Posts.Where(p => p.ChatId == chat.Id && p.Timestamp >= startDate!.Value && p.Timestamp < endDate!.Value)
-            .LoadWith(p => p.Interactions)
+        var weeksInPeriod = (int)Math.Ceiling((endDate!.Value - startDate!.Value).TotalDays / 7.0);
+        var takeCount = Math.Clamp(weeksInPeriod, 10, 50);
+
+        var topPosts = _sqliteDb
+            .Posts.Where(p =>
+                p.ChatId == chat.Id
+                && p.Timestamp >= startDate!.Value
+                && p.Timestamp < endDate!.Value
+                && p.Interactions.Any()
+            )
+            .Select(p => new { Post = p, Likes = p.Interactions.Sum(i => i.Reaction ? 1 : -1) })
+            .OrderByDescending(x => x.Likes)
+            .Take(takeCount)
             .ToList();
 
-        if (!posts.SelectMany(p => p.Interactions).Any())
+        if (topPosts.Count == 0)
         {
             await _botClient.SendMessage(chat.Id, $"Не найдено заплюсованных постов за период");
             _logger.LogInformation($"{nameof(HandleTopPostsCustom)} - no up-voted posts, skipping");
             return;
         }
-
-        var weeksInPeriod = (int)Math.Ceiling((endDate!.Value - startDate!.Value).TotalDays / 7.0);
-        var takeCount = Math.Clamp(weeksInPeriod, 10, 50);
-
-        var topPosts = posts
-            .Select(p => new { Post = p, Likes = p.Interactions.Sum(i => i.Reaction ? 1 : -1) })
-            .OrderByDescending(x => x.Likes)
-            .Take(takeCount)
-            .ToList();
 
         var userIds = topPosts.Select(x => x.Post.PosterId).Distinct().ToList();
         var userIdToUser = await TelegramHelper.GetTelegramUsers(chat, userIds, _botClient);
@@ -582,24 +594,32 @@ internal sealed class MessageHandler
             return;
         }
 
-        var posts = _sqliteDb
-            .Posts.Where(p => p.ChatId == chat.Id && p.Timestamp >= startDate!.Value && p.Timestamp < endDate!.Value)
-            .LoadWith(p => p.Interactions)
+        var postWithLikes = _sqliteDb
+            .Posts.Where(p =>
+                p.ChatId == chat.Id
+                && p.Timestamp >= startDate!.Value
+                && p.Timestamp < endDate!.Value
+                && p.Interactions.Any()
+            )
+            .Select(p => new
+            {
+                p.PosterId,
+                Likes = p.Interactions.Sum(i => i.Reaction ? 1 : -1),
+                HasUpvote = p.Interactions.Any(i => i.Reaction),
+            })
             .ToList();
 
-        if (!posts.SelectMany(x => x.Interactions).Any(i => i.Reaction))
+        if (!postWithLikes.Any(x => x.HasUpvote))
         {
             await _botClient.SendMessage(chat.Id, $"Не найдено заплюсованных постов за период");
             return;
         }
 
-        var postWithLikes = posts.Select(p => new { Post = p, Likes = p.Interactions.Sum(i => i.Reaction ? 1 : -1) });
-
         var weeksInPeriod = (int)Math.Ceiling((endDate!.Value - startDate!.Value).TotalDays / 7.0);
         var takeCount = Math.Clamp(weeksInPeriod, 10, 50);
 
         var topAuthors = postWithLikes
-            .GroupBy(x => x.Post.PosterId)
+            .GroupBy(x => x.PosterId)
             .Select(g => new
             {
                 PosterId = g.Key,

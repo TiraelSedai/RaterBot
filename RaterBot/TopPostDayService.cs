@@ -77,13 +77,14 @@ namespace RaterBot
             var chat = await _botClient.GetChat(chatId);
             _logger.LogDebug("Chat {Title}", chat.Title);
             var topPosts = db
-                .Posts.Where(x => x.ChatId == chatId && x.Timestamp > now - day)
+                .Posts.Where(x =>
+                    x.ChatId == chatId
+                    && x.Timestamp > now - day
+                    && x.Interactions.Sum(i => i.Reaction ? 1 : -1) > 0
+                )
                 .OrderByDescending(x => x.Interactions.Select(i => i.Reaction ? 1 : -1).Sum())
                 .ThenBy(x => x.Id)
                 .Take(20)
-                .LoadWith(x => x.Interactions)
-                .ToList()
-                .Where(x => x.Interactions.Select(i => i.Reaction ? 1 : -1).Sum() > 0)
                 .ToList();
             _logger.LogDebug("Top posts in chat {Top}", string.Join(',', topPosts.Select(x => x.MessageId)));
             var previousTop = db.TopPostsDays.Where(x => x.ChatId == chatId).ToList();

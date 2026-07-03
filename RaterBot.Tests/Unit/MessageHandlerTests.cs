@@ -226,6 +226,65 @@ public class MessageHandlerTests : SqliteDbTestBase
         );
     }
 
+    // Guards the SQL-side aggregation used by HandleTopPosts / HandleTopAuthors:
+    // net likes, upvote counts and the Any() filter must all translate to SQLite.
+    [Fact]
+    public async Task TopQueries_AggregatePerPostInSql()
+    {
+        var chatId = -1001234567890L;
+        var pA = await InsertPostAsync(chatId, 1, 10); // poster 1, net +2
+        var pB = await InsertPostAsync(chatId, 1, 11); // poster 1, net +1
+        var pC = await InsertPostAsync(chatId, 2, 12); // poster 2, net +4
+        var pD = await InsertPostAsync(chatId, 3, 13); // poster 3, net -2, no upvotes
+        await InsertPostAsync(chatId, 3, 14); // no interactions -> excluded by Any()
+
+        foreach (var (post, up, down) in new[] { (pA, 3, 1), (pB, 1, 0), (pC, 5, 1), (pD, 0, 2) })
+        {
+            for (var u = 0; u < up; u++)
+                await InsertInteractionAsync(1000 + u, post, true);
+            for (var d = 0; d < down; d++)
+                await InsertInteractionAsync(2000 + d, post, false);
+        }
+
+        var topPosts = Db
+            .Posts.Where(p => p.ChatId == chatId && p.Interactions.Any())
+            .Select(p => new { Post = p, Likes = p.Interactions.Sum(i => i.Reaction ? 1 : -1) })
+            .OrderByDescending(x => x.Likes)
+            .Take(20)
+            .ToList();
+
+        topPosts.Select(x => x.Post.MessageId).ShouldBe(new long[] { 12, 10, 11, 13 });
+        topPosts.Select(x => x.Likes).ShouldBe(new[] { 4, 2, 1, -2 });
+
+        var postWithLikes = Db
+            .Posts.Where(p => p.ChatId == chatId && p.Interactions.Any())
+            .Select(p => new
+            {
+                p.PosterId,
+                Likes = p.Interactions.Sum(i => i.Reaction ? 1 : -1),
+                HasUpvote = p.Interactions.Any(i => i.Reaction),
+            })
+            .ToList();
+
+        postWithLikes.Any(x => x.HasUpvote).ShouldBeTrue();
+
+        var topAuthors = postWithLikes
+            .GroupBy(x => x.PosterId)
+            .Select(g => new
+            {
+                PosterId = g.Key,
+                Likes = g.Sum(x => x.Likes),
+                HirschIndex = g.OrderByDescending(x => x.Likes).TakeWhile((x, iter) => x.Likes >= iter + 1).Count(),
+            })
+            .OrderByDescending(x => x.HirschIndex)
+            .ThenByDescending(x => x.Likes)
+            .ToList();
+
+        topAuthors.Select(x => x.PosterId).ShouldBe(new long[] { 2, 1, 3 });
+        topAuthors.Select(x => x.Likes).ShouldBe(new[] { 4, 3, -2 });
+        topAuthors.Select(x => x.HirschIndex).ShouldBe(new[] { 1, 1, 0 });
+    }
+
     [Fact]
     public async Task HandleCallbackData_SameVoteTwice_NoChange()
     {
