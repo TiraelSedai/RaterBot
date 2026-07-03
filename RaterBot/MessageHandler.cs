@@ -432,6 +432,7 @@ internal sealed class MessageHandler
             return;
         }
 
+        var sw = Stopwatch.StartNew();
         var topPosts = _sqliteDb
             .Posts.Where(p =>
                 p.ChatId == chat.Id
@@ -442,6 +443,14 @@ internal sealed class MessageHandler
             .OrderByDescending(x => x.Likes)
             .Take(20)
             .ToList();
+        var dbMs = sw.ElapsedMilliseconds;
+        _logger.LogDebug(
+            "{Handler} {Period}: db query {DbMs}ms, {PostCount} posts",
+            nameof(HandleTopPosts),
+            period,
+            dbMs,
+            topPosts.Count
+        );
 
         if (topPosts.Count == 0)
         {
@@ -452,6 +461,14 @@ internal sealed class MessageHandler
 
         var userIds = topPosts.Select(x => x.Post.PosterId).Distinct().ToList();
         var userIdToUser = await TelegramHelper.GetTelegramUsers(chat, userIds, _botClient);
+        _logger.LogDebug(
+            "{Handler} {Period}: resolved {UserCount} users in {UsersMs}ms, total {TotalMs}ms",
+            nameof(HandleTopPosts),
+            period,
+            userIds.Count,
+            sw.ElapsedMilliseconds - dbMs,
+            sw.ElapsedMilliseconds
+        );
 
         var message = new StringBuilder(1024);
         message.Append("Топ постов за ");

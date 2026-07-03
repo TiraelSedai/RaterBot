@@ -30,7 +30,7 @@ namespace RaterBot
                 {
                     var member = await telegramBotClient.GetChatMember(chat.Id, id);
                     userIdToUser[id] = member.User;
-                    MemoryCache.Default.Add(id.ToString(), member, new CacheItemPolicy { SlidingExpiration = TimeSpan.FromHours(1) });
+                    MemoryCache.Default.Add(id.ToString(), member.User, new CacheItemPolicy { SlidingExpiration = TimeSpan.FromHours(1) });
                 }
                 catch (ApiRequestException)
                 {
