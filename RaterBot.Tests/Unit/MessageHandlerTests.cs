@@ -285,6 +285,49 @@ public class MessageHandlerTests : SqliteDbTestBase
         topAuthors.Select(x => x.HirschIndex).ShouldBe(new[] { 1, 1, 0 });
     }
 
+    // Regression: TopPostDayService renders 👍/👎 counts from post.Interactions, so the daily
+    // top-posts query must eager-load them. Without LoadWith the association is null and
+    // ConstructReplyMarkup throws ArgumentNullException (the daily top job silently broke).
+    [Fact]
+    public async Task DailyTopPostsQuery_EagerLoadsInteractions()
+    {
+        var chatId = -1001234567890L;
+        var pA = await InsertPostAsync(chatId, 1, 10); // net +2
+        var pB = await InsertPostAsync(chatId, 2, 11); // net +1
+        await InsertPostAsync(chatId, 3, 12); // no interactions -> excluded
+
+        foreach (var (post, up, down) in new[] { (pA, 3, 1), (pB, 1, 0) })
+        {
+            for (var u = 0; u < up; u++)
+                await InsertInteractionAsync(1000 + u, post, true);
+            for (var d = 0; d < down; d++)
+                await InsertInteractionAsync(2000 + d, post, false);
+        }
+
+        var now = DateTime.UtcNow;
+        var day = TimeSpan.FromDays(1);
+        var topPosts = Db
+            .Posts.Where(x =>
+                x.ChatId == chatId && x.Timestamp > now - day && x.Interactions.Sum(i => i.Reaction ? 1 : -1) > 0
+            )
+            .OrderByDescending(x => x.Interactions.Select(i => i.Reaction ? 1 : -1).Sum())
+            .ThenBy(x => x.Id)
+            .Take(20)
+            .LoadWith(x => x.Interactions)
+            .ToList();
+
+        topPosts.Select(x => x.MessageId).ShouldBe(new long[] { 10, 11 });
+
+        // The association must be materialised - this is exactly what ConstructReplyMarkup relies on.
+        foreach (var post in topPosts)
+            post.Interactions.ShouldNotBeNull();
+
+        var interactions = topPosts[0].Interactions.ToList();
+        var likes = interactions.Count(x => x.Reaction);
+        likes.ShouldBe(3);
+        (interactions.Count - likes).ShouldBe(1);
+    }
+
     [Fact]
     public async Task HandleCallbackData_SameVoteTwice_NoChange()
     {

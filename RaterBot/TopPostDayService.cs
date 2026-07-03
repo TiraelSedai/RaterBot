@@ -85,6 +85,7 @@ namespace RaterBot
                 .OrderByDescending(x => x.Interactions.Select(i => i.Reaction ? 1 : -1).Sum())
                 .ThenBy(x => x.Id)
                 .Take(20)
+                .LoadWith(x => x.Interactions)
                 .ToList();
             _logger.LogDebug("Top posts in chat {Top}", string.Join(',', topPosts.Select(x => x.MessageId)));
             var previousTop = db.TopPostsDays.Where(x => x.ChatId == chatId).ToList();
