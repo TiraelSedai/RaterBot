@@ -18,25 +18,35 @@ namespace RaterBot
         )
         {
             var userIdToUser = new Dictionary<long, User>(userIds.Count);
-            foreach (var id in userIds)
-            {
-                if (MemoryCache.Default.Get(id.ToString()) is User fromCache)
+            await Parallel.ForEachAsync(
+                userIds.Distinct(),
+                new ParallelOptions { MaxDegreeOfParallelism = 4 },
+                async (id, cancellationToken) =>
                 {
-                    userIdToUser[id] = fromCache;
-                    continue;
-                }
+                    if (MemoryCache.Default.Get(id.ToString()) is User fromCache)
+                    {
+                        lock (userIdToUser)
+                            userIdToUser[id] = fromCache;
+                        return;
+                    }
 
-                try
-                {
-                    var member = await telegramBotClient.GetChatMember(chat.Id, id);
-                    userIdToUser[id] = member.User;
-                    MemoryCache.Default.Add(id.ToString(), member.User, new CacheItemPolicy { SlidingExpiration = TimeSpan.FromHours(1) });
+                    try
+                    {
+                        var member = await telegramBotClient.GetChatMember(chat.Id, id, cancellationToken);
+                        lock (userIdToUser)
+                            userIdToUser[id] = member.User;
+                        MemoryCache.Default.Add(
+                            id.ToString(),
+                            member.User,
+                            new CacheItemPolicy { SlidingExpiration = TimeSpan.FromHours(24) }
+                        );
+                    }
+                    catch (ApiRequestException)
+                    {
+                        // User not found for any reason, we don't care.
+                    }
                 }
-                catch (ApiRequestException)
-                {
-                    // User not found for any reason, we don't care.
-                }
-            }
+            );
 
             return userIdToUser;
         }

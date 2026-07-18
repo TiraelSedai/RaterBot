@@ -1,5 +1,10 @@
+using System.Runtime.Caching;
+using Moq;
 using RaterBot;
 using Shouldly;
+using Telegram.Bot;
+using Telegram.Bot.Requests;
+using Telegram.Bot.Requests.Abstractions;
 using Telegram.Bot.Types;
 using Telegram.Bot.Types.Enums;
 
@@ -7,6 +12,55 @@ namespace RaterBot.Tests.Unit;
 
 public class TelegramHelperTests
 {
+    [Fact]
+    public async Task GetTelegramUsers_ExecutesFourRequestsInParallel()
+    {
+        var activeRequests = 0;
+        var maxActiveRequests = 0;
+        var maxActiveRequestsLock = new object();
+        var bot = new Mock<ITelegramBotClient>();
+        bot.Setup(x => x.SendRequest(It.IsAny<IRequest<ChatMember>>(), It.IsAny<CancellationToken>()))
+            .Returns(
+                async (IRequest<ChatMember> request, CancellationToken cancellationToken) =>
+                {
+                    var active = Interlocked.Increment(ref activeRequests);
+                    lock (maxActiveRequestsLock)
+                        maxActiveRequests = Math.Max(maxActiveRequests, active);
+
+                    await Task.Delay(50, cancellationToken);
+                    Interlocked.Decrement(ref activeRequests);
+
+                    var userId = ((GetChatMemberRequest)request).UserId;
+                    return new ChatMemberMember
+                    {
+                        User = new User { Id = userId, FirstName = userId.ToString() },
+                    };
+                }
+            );
+
+        var uniqueUserIds = Enumerable.Range(1, 8).Select(id => long.MinValue + id).ToArray();
+        var userIds = uniqueUserIds.Concat([uniqueUserIds[0], uniqueUserIds[1]]).ToArray();
+        foreach (var userId in uniqueUserIds)
+            MemoryCache.Default.Remove(userId.ToString());
+
+        try
+        {
+            var users = await TelegramHelper.GetTelegramUsers(new Chat { Id = 1 }, userIds, bot.Object);
+
+            maxActiveRequests.ShouldBe(4);
+            users.Keys.ShouldBe(uniqueUserIds, ignoreOrder: true);
+            bot.Verify(
+                x => x.SendRequest(It.IsAny<IRequest<ChatMember>>(), It.IsAny<CancellationToken>()),
+                Times.Exactly(uniqueUserIds.Length)
+            );
+        }
+        finally
+        {
+            foreach (var userId in uniqueUserIds)
+                MemoryCache.Default.Remove(userId.ToString());
+        }
+    }
+
     [Fact]
     public void LinkToMessage_Supergroup_ReturnsCorrectLink()
     {
