@@ -552,6 +552,27 @@ public class MessageHandlerTests : SqliteDbTestBase
     }
 
     [Fact]
+    public async Task HandleUpdate_LinkInReply_IsNotConverted()
+    {
+        const long chatId = -1001234567890L;
+        const string twitterUrl = "https://x.com/test/status/123";
+
+        SetupBotResponses(sendMessageMessageId: 500, sendVideoMessageId: 600);
+
+        var handler = CreateHandler();
+        var update = CreateTextUpdate(chatId, 42, 111L, twitterUrl);
+        SetMessageProperty(update.Message!, nameof(Message.ReplyToMessage), CreateTextMessage(chatId, 41, 222L, "meme"));
+        var botUser = new User { Id = 999, Username = "testbot" };
+
+        await handler.HandleUpdate(botUser, update);
+
+        _mockDownloader.Verify(x => x.DownloadYtDlp(It.IsAny<string>(), It.IsAny<UrlType>()), Times.Never);
+        _mockBot.Verify(x => x.SendRequest(It.IsAny<SendMessageRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+        _mockBot.Verify(x => x.SendRequest(It.IsAny<DeleteMessageRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+        (await Db.Posts.ToListAsync()).ShouldBeEmpty();
+    }
+
+    [Fact]
     public void FindSupportedSiteLink_FixupxLink_SkipsDownloaderFallback()
     {
         var message = CreateTextMessage(-1001234567890L, 42, 111L, "https://fixupx.com/test/status/123");
