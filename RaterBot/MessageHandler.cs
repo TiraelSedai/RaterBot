@@ -136,26 +136,28 @@ internal sealed class MessageHandler
                         await HandleTextReplyAsync(update);
                         return;
                     }
+                }
 
-                    var link = FindSupportedSiteLink(msg);
-                    switch (link?.Type)
-                    {
-                        case UrlType.Vk:
-                        case UrlType.TikTok:
-                        case UrlType.Twitter:
-                        case UrlType.Youtube:
-                            if (!await HandleYtDlp(update, link.Value.Url, link.Value.Type))
-                                await HandleEmbedableLink(update, link.Value.FallbackUrl!);
-                            return;
-                        case UrlType.Reddit:
-                            await HandleGalleryDl(update, link.Value.Url);
-                            break;
-                        case UrlType.EmbedableLink:
-                            await HandleEmbedableLink(update, link.Value.Url);
-                            break;
-                        default:
-                            break;
-                    }
+                // Replies are conversation, not new posts: don't convert links or media sent as a reply
+                if (msg.ReplyToMessage != null)
+                    return;
+
+                var link = FindSupportedSiteLink(msg);
+                switch (link?.Type)
+                {
+                    case UrlType.Vk:
+                    case UrlType.TikTok:
+                    case UrlType.Twitter:
+                    case UrlType.Youtube:
+                        if (!await HandleYtDlp(update, link.Value.Url, link.Value.Type))
+                            await HandleEmbedableLink(update, link.Value.FallbackUrl!);
+                        return;
+                    case UrlType.Reddit:
+                        await HandleGalleryDl(update, link.Value.Url);
+                        return;
+                    case UrlType.EmbedableLink:
+                        await HandleEmbedableLink(update, link.Value.Url);
+                        return;
                 }
 
                 if (
@@ -167,12 +169,6 @@ internal sealed class MessageHandler
                     )
                 )
                 {
-                    if (msg.ReplyToMessage != null)
-                    {
-                        _logger.LogInformation("Reply media messages should be ignored");
-                        return;
-                    }
-
                     if (msg.MediaGroupId != null)
                         await HandleMediaGroup(msg);
                     else
