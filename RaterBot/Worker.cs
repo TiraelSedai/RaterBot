@@ -104,9 +104,9 @@ namespace RaterBot
             }
         }
 
-        private async Task ProcessInBackground(User me, Update update)
+        internal async Task ProcessInBackground(User me, Update update)
         {
-            var scope = _serviceProvider.CreateScope();
+            await using var scope = _serviceProvider.CreateAsyncScope();
             var mh = scope.ServiceProvider.GetRequiredService<MessageHandler>();
             await mh.HandleUpdate(me, update);
         }
