@@ -22,7 +22,8 @@
     <PackageReference Include="Serilog.Extensions.Hosting" Version="10.*" />
     <PackageReference Include="Serilog.Formatting.Compact" Version="3.*" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.*" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.*" />
+    <!-- 3.2.0+ fails the build without a Six Labors license key -->
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.*" />
     <PackageReference Include="System.Data.SQLite.Core" Version="1.*" />
     <PackageReference Include="System.Drawing.Common" Version="10.*" />
     <PackageReference Include="System.Runtime.Caching" Version="10.*" />
