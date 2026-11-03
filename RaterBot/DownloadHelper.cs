@@ -136,6 +136,10 @@ internal sealed class ProcessMediaDownloader(Config config, ILogger<ProcessMedia
         startInfo.ArgumentList.Add("--no-warnings");
         startInfo.ArgumentList.Add("-o");
         startInfo.ArgumentList.Add(outputFile);
+        // Larger files OOM-killed the 512M container. yt-dlp aborts before downloading (exit 0, no file),
+        // so DownloadYtDlp returns null and the video is treated as not downloaded.
+        startInfo.ArgumentList.Add("--max-filesize");
+        startInfo.ArgumentList.Add("30M");
         startInfo.ArgumentList.Add("-f");
         startInfo.ArgumentList.Add("bestvideo[height<=1080][vcodec^=avc][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best");
         startInfo.ArgumentList.Add(url);

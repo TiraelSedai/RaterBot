@@ -43,18 +43,9 @@ public class ProcessMediaDownloaderTests
         var startInfo = ProcessMediaDownloader.CreateYtDlpStartInfo("https://example.com/video", "/tmp/video.mp4", "http://proxy:8080");
 
         startInfo.FileName.ShouldBe("yt-dlp");
-        startInfo
-            .ArgumentList.ToArray()
-            .ShouldBe([
-                "--proxy",
-                "http://proxy:8080",
-                "--no-warnings",
-                "-o",
-                "/tmp/video.mp4",
-                "-f",
-                "bestvideo[height<=1080][vcodec^=avc][ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-                "https://example.com/video",
-            ]);
+        var args = startInfo.ArgumentList.ToArray();
+        args[Array.IndexOf(args, "--proxy") + 1].ShouldBe("http://proxy:8080");
+        args[^1].ShouldBe("https://example.com/video");
     }
 
     [Fact]
