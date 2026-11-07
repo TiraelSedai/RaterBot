@@ -3,24 +3,24 @@ name: Build and Push Docker Image
 on:
   push:
     branches: [master]
+  pull_request:
 
 jobs:
-  build-and-push:
+  check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Extract version number
-        id: vars
-        run: echo "::set-output name=version::1.0.${{ github.run_number }}"
-
-      - name: Set lowercase repo name
-        run: echo "repo_name=${{ github.repository }}" | tr '[:upper:]' '[:lower:]' >> $GITHUB_ENV
+      - uses: actions/checkout@v4
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v3
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Check formatting
+        run: dotnet csharpier check .
 
       - name: Restore dependencies
         run: dotnet restore
@@ -28,11 +28,25 @@ jobs:
       - name: Run tests
         run: dotnet test --no-restore
 
+  build-and-push:
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version number
+        id: vars
+        run: echo "version=1.0.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Set lowercase repo name
+        run: echo "repo_name=${{ github.repository }}" | tr '[:upper:]' '[:lower:]' >> $GITHUB_ENV
+
       - name: Build Docker image
         run: docker build -t ghcr.io/${{ env.repo_name }}:latest -t ghcr.io/${{ env.repo_name }}:${{ steps.vars.outputs.version }} .
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

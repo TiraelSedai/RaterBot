@@ -303,11 +303,7 @@ internal sealed class MessageHandler
         }
 
         var postStats = _sqliteDb
-            .Posts.Where(p =>
-                p.ChatId == chat.Id
-                && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period)
-                && p.Interactions.Any()
-            )
+            .Posts.Where(p => p.ChatId == chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period) && p.Interactions.Any())
             .Select(p => new
             {
                 Post = p,
@@ -358,11 +354,7 @@ internal sealed class MessageHandler
         Debug.Assert(update.Message != null);
         var chat = update.Message.Chat;
         var postWithLikes = _sqliteDb
-            .Posts.Where(p =>
-                p.ChatId == chat.Id
-                && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period)
-                && p.Interactions.Any()
-            )
+            .Posts.Where(p => p.ChatId == chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period) && p.Interactions.Any())
             .Select(p => new
             {
                 p.PosterId,
@@ -430,23 +422,13 @@ internal sealed class MessageHandler
 
         var sw = Stopwatch.StartNew();
         var topPosts = _sqliteDb
-            .Posts.Where(p =>
-                p.ChatId == chat.Id
-                && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period)
-                && p.Interactions.Any()
-            )
+            .Posts.Where(p => p.ChatId == chat.Id && p.Timestamp > DateTime.UtcNow - PeriodToTimeSpan(period) && p.Interactions.Any())
             .Select(p => new { Post = p, Likes = p.Interactions.Sum(i => i.Reaction ? 1 : -1) })
             .OrderByDescending(x => x.Likes)
             .Take(20)
             .ToList();
         var dbMs = sw.ElapsedMilliseconds;
-        _logger.LogDebug(
-            "{Handler} {Period}: db query {DbMs}ms, {PostCount} posts",
-            nameof(HandleTopPosts),
-            period,
-            dbMs,
-            topPosts.Count
-        );
+        _logger.LogDebug("{Handler} {Period}: db query {DbMs}ms, {PostCount} posts", nameof(HandleTopPosts), period, dbMs, topPosts.Count);
 
         if (topPosts.Count == 0)
         {
@@ -545,10 +527,7 @@ internal sealed class MessageHandler
 
         var topPosts = _sqliteDb
             .Posts.Where(p =>
-                p.ChatId == chat.Id
-                && p.Timestamp >= startDate!.Value
-                && p.Timestamp < endDate!.Value
-                && p.Interactions.Any()
+                p.ChatId == chat.Id && p.Timestamp >= startDate!.Value && p.Timestamp < endDate!.Value && p.Interactions.Any()
             )
             .Select(p => new { Post = p, Likes = p.Interactions.Sum(i => i.Reaction ? 1 : -1) })
             .OrderByDescending(x => x.Likes)
@@ -609,10 +588,7 @@ internal sealed class MessageHandler
 
         var postWithLikes = _sqliteDb
             .Posts.Where(p =>
-                p.ChatId == chat.Id
-                && p.Timestamp >= startDate!.Value
-                && p.Timestamp < endDate!.Value
-                && p.Interactions.Any()
+                p.ChatId == chat.Id && p.Timestamp >= startDate!.Value && p.Timestamp < endDate!.Value && p.Interactions.Any()
             )
             .Select(p => new
             {

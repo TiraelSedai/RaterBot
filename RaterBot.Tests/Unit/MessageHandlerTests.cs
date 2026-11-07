@@ -307,9 +307,7 @@ public class MessageHandlerTests : SqliteDbTestBase
         var now = DateTime.UtcNow;
         var day = TimeSpan.FromDays(1);
         var topPosts = Db
-            .Posts.Where(x =>
-                x.ChatId == chatId && x.Timestamp > now - day && x.Interactions.Sum(i => i.Reaction ? 1 : -1) > 0
-            )
+            .Posts.Where(x => x.ChatId == chatId && x.Timestamp > now - day && x.Interactions.Sum(i => i.Reaction ? 1 : -1) > 0)
             .OrderByDescending(x => x.Interactions.Select(i => i.Reaction ? 1 : -1).Sum())
             .ThenBy(x => x.Id)
             .Take(20)

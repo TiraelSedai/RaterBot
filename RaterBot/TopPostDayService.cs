@@ -77,11 +77,7 @@ namespace RaterBot
             var chat = await _botClient.GetChat(chatId);
             _logger.LogDebug("Chat {Title}", chat.Title);
             var topPosts = db
-                .Posts.Where(x =>
-                    x.ChatId == chatId
-                    && x.Timestamp > now - day
-                    && x.Interactions.Sum(i => i.Reaction ? 1 : -1) > 0
-                )
+                .Posts.Where(x => x.ChatId == chatId && x.Timestamp > now - day && x.Interactions.Sum(i => i.Reaction ? 1 : -1) > 0)
                 .OrderByDescending(x => x.Interactions.Select(i => i.Reaction ? 1 : -1).Sum())
                 .ThenBy(x => x.Id)
                 .Take(20)
@@ -240,9 +236,7 @@ namespace RaterBot
                 recent = [];
 
             var postIds = posts.Select(p => p.Id).ToList();
-            var textByPostId = db
-                .TextPosts.Where(tp => postIds.Contains(tp.PostId))
-                .ToDictionary(tp => tp.PostId, tp => tp.Text);
+            var textByPostId = db.TextPosts.Where(tp => postIds.Contains(tp.PostId)).ToDictionary(tp => tp.PostId, tp => tp.Text);
 
             foreach (var post in posts)
             {
@@ -257,7 +251,12 @@ namespace RaterBot
                 }
                 catch (Exception e)
                 {
-                    _logger.LogWarning(e, "Exception copying top post to channel, chatId {ChatId} postId {PostId}", sourceChat.Id, post.MessageId);
+                    _logger.LogWarning(
+                        e,
+                        "Exception copying top post to channel, chatId {ChatId} postId {PostId}",
+                        sourceChat.Id,
+                        post.MessageId
+                    );
                 }
             }
 
@@ -274,13 +273,7 @@ namespace RaterBot
                 var start = (int)post.ReplyMessageId.Value;
                 var count = (int)(post.MessageId - post.ReplyMessageId.Value);
                 var ids = Enumerable.Range(start, count).ToArray();
-                var copies = await _botClient.CopyMessages(
-                    forwardTo,
-                    sourceChat.Id,
-                    ids,
-                    disableNotification: true,
-                    protectContent: true
-                );
+                var copies = await _botClient.CopyMessages(forwardTo, sourceChat.Id, ids, disableNotification: true, protectContent: true);
                 if (hasLink && copies.Length > 0)
                 {
                     await _botClient.EditMessageCaption(
