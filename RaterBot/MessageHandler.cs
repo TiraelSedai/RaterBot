@@ -1000,6 +1000,14 @@ internal sealed class MessageHandler
             if (media.HasValue)
                 _vectorSearchService.Process(media.Value.FileId, media.Value.MediaKind, msg.Chat, newMessage);
         }
+        catch (ApiRequestException ex) when (ex.ErrorCode == 429)
+        {
+            _logger.LogWarning(
+                ex,
+                "Cannot handle media message, Telegram rate limit, retry after {RetryAfter}s",
+                ex.Parameters?.RetryAfter
+            );
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Cannot handle media message");

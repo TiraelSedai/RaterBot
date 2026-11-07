@@ -222,7 +222,13 @@ internal sealed partial class VectorSearchService : IDisposable, IVectorSearchSe
             if (similarity < SimilarityThreshold)
                 continue;
 
-            _logger.LogInformation("Found possible duplicate via CLIP (similarity: {Similarity:F3})", similarity);
+            _logger.LogInformation(
+                "Found possible duplicate via CLIP (similarity: {Similarity:F3}), ChatId = {ChatId}, MessageId = {MessageId}, CandidateMessageId = {CandidateMessageId}",
+                similarity,
+                item.Chat.Id,
+                item.MessageId.Id,
+                candidate.MessageId
+            );
             var linkToMessage = TelegramHelper.LinkToMessage(item.Chat, candidate.MessageId);
             _bot.TemporaryReply(item.Chat.Id, item.MessageId, $"Уже было? {linkToMessage}");
             break;
@@ -277,7 +283,12 @@ internal sealed partial class VectorSearchService : IDisposable, IVectorSearchSe
             if (!HasTwoDistinctFrameMatches(incomingEmbeddings, candidateEmbeddings, SimilarityThreshold))
                 continue;
 
-            _logger.LogInformation("Found possible duplicate via motion CLIP");
+            _logger.LogInformation(
+                "Found possible duplicate via motion CLIP, ChatId = {ChatId}, MessageId = {MessageId}, CandidateMessageId = {CandidateMessageId}",
+                item.Chat.Id,
+                item.MessageId.Id,
+                candidate.MessageId
+            );
             var linkToMessage = TelegramHelper.LinkToMessage(item.Chat, candidate.MessageId);
             _bot.TemporaryReply(item.Chat.Id, item.MessageId, $"Уже было? {linkToMessage}");
             break;
